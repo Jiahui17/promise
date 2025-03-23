@@ -1,0 +1,33 @@
+{
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "editor.useTabStops": true,
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
+  "files.associations": {
+    "*.inc": "cpp"
+  },
+  "python.analysis.typeCheckingMode": "basic",
+  "python.defaultInterpreterPath": "${workspaceFolder}/ext/.venv/bin/python",
+  "[python]": {
+    "editor.tabSize": 4,
+    "editor.defaultFormatter": "ms-python.black-formatter"
+  },
+  "terminal.integrated.defaultProfile.linux": "bash-with-my-env",
+  "python.REPL.enableREPLSmartSend": false,
+  "[cpp]": {
+    "editor.tabSize": 2,
+    "editor.insertSpaces": true
+  },
+  "cmake.configureSettings": {
+    "ABC_ROOT": "${workspaceFolder}/ext/abc",
+    "YOSYS_ROOT": "${workspaceFolder}/ext/yosys",
+    "CMAKE_C_COMPILER": "gcc",
+    "CMAKE_CXX_COMPILER": "g++",
+    "CMAKE_BUILD_TYPE": "Debug",
+    "CMAKE_EXPORT_COMPILE_COMMAND": "ON"
+  },
+  "cmake.generator": "Ninja",
+  "cmake.buildArgs": ["-v"], 
+  "cmake.verboseOutput": true
+}

@@ -1,0 +1,12 @@
+target_sources(Promise
+PRIVATE
+  LinearAlgebra.cpp
+  ModelCheckingResult.cpp
+  VcdParser.cpp
+  Invariants.cpp
+  VerilatorUtils.cpp
+  AbcCommands.cpp
+  RTLIL/RTLILUtils.cpp
+  RTLIL/EquipInvariants.cpp
+  RTLIL/EncodingOptimization.cpp
+)

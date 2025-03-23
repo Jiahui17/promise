@@ -1,0 +1,14 @@
+{
+  "configurations": [
+    {
+      "name": "Linux",
+      "includePath": [],
+      "intelliSenseMode": "linux-clang-x64",
+      "compilerPath": "/usr/bin/clang",
+      "cStandard": "c17",
+      "cppStandard": "c++17",
+      "configurationProvider": "llvm-vs-code-extensions.vscode-clangd"
+    }
+  ],
+  "version": 4
+}

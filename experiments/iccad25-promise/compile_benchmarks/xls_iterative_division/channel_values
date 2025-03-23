@@ -1,0 +1,9 @@
+divider__lhs : {
+  bits[4]:0b1000
+  bits[4]:0b1011
+}
+
+divider__rhs : {
+  bits[4]:0b1000
+  bits[4]:0b1110
+}

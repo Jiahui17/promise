@@ -1,0 +1,235 @@
+#include <iostream>
+#include <ostream>
+#include <stdexcept>
+
+#include "promise/ModelCheckingResult.h"
+#include "promise/RTLIL/RTLILUtils.h"
+#include "promise/ShellUtils.h"
+#include "promise/StringUtils.h"
+#include "promise/VerilatorUtils.h"
+
+#include "kernel/log.h"
+#include "kernel/rtlil.h"
+
+using namespace Yosys;
+
+// Create a Verilator testbench feed with random inputs
+void createRandomTestBench(const std::filesystem::path &pathToVerilatorTb,
+                           RTLIL::Module *module, unsigned simCycles,
+                           const std::string &vcdFileName, unsigned seed) {
+
+  std::ofstream os(pathToVerilatorTb);
+
+  if (!os.is_open()) {
+    throw std::runtime_error("failed to open file: " +
+                             pathToVerilatorTb.string());
+  }
+
+  // log_id(): Getting a clean name without leading backslash or trailing space.
+  std::string topName = log_id(module->name);
+
+  // Assumption: the design has a clock and a reset input
+  std::string clk;
+  std::string rst;
+
+  for (auto *input : module->wires()) {
+    if (input->port_input) {
+      std::string sigName = input->name.c_str();
+      if (sigName.find("clk") != std::string::npos) {
+        clk = log_id(sigName);
+      }
+      if (sigName.find("rst") != std::string::npos) {
+        rst = log_id(sigName);
+      }
+    }
+  }
+
+  // NOTE: We assume that the clock input is called "clk"
+  if (clk.empty())
+    throw std::runtime_error(
+        "Cannot find the clk signal \"clk\" in the circuit!");
+
+  // NOTE: We assume that the module reset is called "rst"
+  if (rst.empty())
+    throw std::runtime_error(
+        "Cannot find the rst signal \"rst\" in the circuit!");
+
+  os << "#include \"V" << topName << ".h\"\n";
+  os << "#include \"verilated.h\"\n";
+  os << "#include \"verilated_vcd_c.h\"\n";
+  os << "#include <cstdlib>\n";
+  os << "#include <ctime>\n\n";
+  os << "#include <random>\n\n";
+
+  os << "int main (int argc, char** argv, char**env) {\n";
+  os << "  std::mt19937 randomEngine(" << seed << ");\n";
+  os << "  Verilated::commandArgs(argc, argv);\n";
+  os << "  V" << topName << "* top = new V" << topName << ";\n";
+  os << "  VerilatedVcdC * tfp = new VerilatedVcdC;\n";
+  os << "  Verilated::traceEverOn(true);\n";
+  os << "  top->trace(tfp, 99);\n";
+  os << "  tfp->open(\"" << vcdFileName << "\");\n";
+  os << "  std::srand(std::time(nullptr));\n";
+  os << "  top->" << rst << " = 1;\n";
+  os << "  top->" << clk << " = 0;\n";
+  os << "  top->eval();\n";
+  os << "  tfp->dump(0);\n";
+  os << "  for (size_t i = 1; i < " << 2 * simCycles << "; ++i) {\n";
+  os << "    top->" << clk << " = !top->" << clk << ";\n";
+  os << "    if (i==2) top->" << rst << " = 0;\n";
+
+  os << "    if (top->" << clk << "){\n";
+  for (auto *inputSig : module->wires()) {
+    if (inputSig->port_input && log_id(inputSig) != clk &&
+        log_id(inputSig) != rst) {
+      size_t mask = (1 << inputSig->width) - 1;
+      os << "      top->" << log_id(inputSig) << " = randomEngine() & 0x"
+         << std::hex << mask << ";\n";
+    }
+  }
+  os << "    }\n";
+
+  os << "    top->eval();\n";
+  os << "    tfp->dump(i);\n";
+  os << "  }\n";
+  os << "  tfp->close();\n";
+  os << "  delete top;\n";
+  os << "  return 0;\n";
+  os << "}\n";
+}
+
+void createCexTestBench(const std::filesystem::path &pathToVerilatorTb,
+                        RTLIL::Module *module, ModelCheckingResult cex,
+                        const std::string &vcdFileName) {
+  std::ofstream os(pathToVerilatorTb);
+
+  if (!os.is_open()) {
+    throw std::runtime_error("failed to open file: " +
+                             pathToVerilatorTb.string());
+  }
+
+  // log_id(): Getting a clean name without leading backslash or trailing space.
+  std::string topName = log_id(module->name);
+
+  // Assumption: the design has a clock and a reset input
+  std::string clk;
+  std::string rst;
+
+  for (auto *input : module->wires()) {
+    if (input->port_input) {
+      std::string sigName = input->name.c_str();
+      if (sigName.find("clk") != std::string::npos) {
+        clk = log_id(sigName);
+      }
+    }
+  }
+
+  auto inputWires = getSortedInput(module);
+
+  if (clk.empty())
+    throw std::runtime_error(
+        "Cannot find the clk signal \"clk\" in the circuit!");
+
+  os << "#include \"V" << topName << ".h\"\n";
+  os << "#include \"verilated.h\"\n";
+  os << "#include \"verilated_vcd_c.h\"\n";
+  os << "#include <cstdlib>\n";
+  os << "#include <ctime>\n\n";
+
+  os << "int main (int argc, char** argv, char**env) {\n";
+  os << "  Verilated::commandArgs(argc, argv);\n";
+  os << "  V" << topName << "* top = new V" << topName << ";\n";
+  os << "  VerilatedVcdC * tfp = new VerilatedVcdC;\n";
+  os << "  Verilated::traceEverOn(true);\n";
+  os << "  top->trace(tfp, 99);\n";
+  os << "  tfp->open(\"" << vcdFileName << "\");\n";
+  os << "  std::srand(std::time(nullptr));\n";
+  // os << "  top->" << rst << " = 1;\n";
+  os << "  top->" << clk << " = 0;\n";
+  os << "  top->eval();\n";
+  os << "  // Dumping the initial state (state 0)\n";
+  os << "  tfp->dump(0);\n";
+
+  assert(cex.numCexStates > 0);
+
+  for (unsigned i = 0; i < cex.numCexStates; ++i) {
+    os << "  // Cex of state " << i + 1 << "\n";
+    os << "  top->" << clk << " = !top->" << clk << ";\n";
+    for (const auto &inputSig : inputWires) {
+      assert(inputSig->port_input);
+      if (log_id(inputSig) != clk) {
+        size_t mask = (1 << inputSig->width) - 1;
+        os << "  top->" << log_id(inputSig) << " = "
+           << cex.inputValues.at(inputSig->name)[i] << " & 0x" << std::hex
+           << mask << ";\n"
+           << std::dec;
+      }
+    }
+    // Evaluate the rising clock edge
+    os << "  top->eval();\n";
+    os << "  // Dumping state " << i + 1 << "\n";
+    os << "  tfp->dump(" << i + 1 << ");\n";
+    os << "  top->" << clk << " = !top->" << clk << ";\n";
+    // Evaluate the falling clock edge
+    os << "  top->eval();\n";
+  }
+  os << "  tfp->close();\n";
+  os << "  delete top;\n";
+  os << "  return 0;\n";
+  os << "}\n";
+}
+
+void runVerilatorLinting(const std::vector<std::string> &verilogSrcs,
+                         const std::string &topName) {
+
+  std::stringstream verilatorCmd;
+  verilatorCmd << std::filesystem::path(PROMISE_BINARIES_DIR) / "verilator";
+  verilatorCmd
+      << " --lint-only -Wall --Wno-UNUSED --Wno-WIDTHTRUNC --top-module "
+      << topName;
+  for (const auto &src : verilogSrcs) {
+    verilatorCmd << " " << src;
+  }
+
+  auto [code, stdout] = shell(verilatorCmd.str());
+
+  if (code != 0) {
+    std::cerr << "Error: Verilator failed to lint the design.\n" << stdout;
+    throw std::runtime_error("Verilator linting failed");
+  }
+}
+
+void buildVerilatorModel(const std::filesystem::path &objDir,
+                         const std::vector<std::filesystem::path> &verilogSrcs,
+                         const std::filesystem::path &testbench,
+                         const std::string &topName) {
+
+  // Generate the CPP simulation model
+  std::stringstream verilatorCmd;
+  verilatorCmd << std::filesystem::path(PROMISE_BINARIES_DIR) / "verilator";
+  verilatorCmd << " --trace -Mdir " << objDir;
+  verilatorCmd << " --cc ";
+  for (const auto &src : verilogSrcs) {
+    verilatorCmd << " " << src;
+  }
+  verilatorCmd << " --exe " << testbench;
+
+  // Some internal signals in xls might begin with an underscore.
+  // NOTE: be aware that we also need `--coverage-underscore` at some point
+  verilatorCmd << " --trace-underscore";
+  verilatorCmd << " --top-module " << topName;
+  auto [code, stdout] = shell(verilatorCmd.str());
+
+  if (code != 0) {
+    std::cerr << "Error: Verilator failed to compile the design.\n" << stdout;
+    throw std::runtime_error("Verilator compilation failed");
+  }
+
+  // Compile the CPP simulation model
+  std::stringstream makeCmd;
+  makeCmd << "make -C " << objDir;
+  makeCmd << " -f V" << topName + ".mk";
+  makeCmd << " V" << topName;
+
+  shell(makeCmd.str());
+}
