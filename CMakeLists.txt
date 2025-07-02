@@ -19,6 +19,16 @@ include(cmake/FindABC.cmake)
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 find_package(Boost 1.82 REQUIRED COMPONENTS filesystem system graph json)
 
+# See abc/misc/util/abc_global.h: "long long" behaves differently on
+# difference archtectures, this flag is used to tell that the machine is
+# a linux OS running on 64-bit machine
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set(ABC_ARCH_NAME LIN64)
+    message(STATUS "System is Linux and 64-bit, setting ABC_ARCH_NAME to LIN64")
+else()
+    message(FATAL_ERROR "This project requires a 64-bit Linux system.")
+endif()
+
 # If we put it not in the root CMakeLists.txt, `$ ninja test` will not run.
 enable_testing()
 
@@ -26,6 +36,7 @@ include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${YOSYS_ROOT})
 include_directories(${EIGEN3_INCLUDE_DIR})
 include_directories(${Boost_INCLUDE_DIRS})
+include_directories(${ABC_ROOT}/src)
 
 add_library(Promise)
 
@@ -39,6 +50,7 @@ target_compile_options(Promise
     -DYOSYS_ENABLE_ABC
     -DYOSYS_ENABLE_COVER
     -DPROMISE_BINARIES_DIR="${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+    -D${ABC_ARCH_NAME}
 )
 
 function(add_promise_binary binary_name)
@@ -62,6 +74,7 @@ function(add_promise_binary binary_name)
         -DYOSYS_ENABLE_ABC
         -DYOSYS_ENABLE_COVER
         -DPROMISE_BINARIES_DIR="${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+        -D${ABC_ARCH_NAME}
     )
 endfunction()
 

@@ -29,6 +29,8 @@ using namespace ABC_NAMESPACE;
 #endif
 // END: Symbols from libabc.so
 
+#include "base/abc/abc.h"
+
 inline void runAbcCommand(Abc_Frame_t *pAbc, const std::string &cmd) {
   if (!pAbc) {
     throw std::runtime_error(
