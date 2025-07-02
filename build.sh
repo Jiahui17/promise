@@ -9,24 +9,14 @@ exit_on_failure() {
 
 build_abc() {
     DIR=$1
-    [ -d "$DIR/abc" ] && return 0
-    git clone git@github.com:berkeley-abc/abc.git $DIR/abc
-    exit_on_failure "git clone abc failed"
     cd $DIR/abc
-    git checkout ca78f5e6e5308df420ffc5c709e6d37caf97e40b
     CC=g++ make -j8 ABC_USE_PIC=1 libabc.so
     exit_on_failure "ABC build failed"
 }
 
 build_yosys() {
     DIR=$1
-    [ -d "$DIR/yosys" ] && return 0
-    git clone --recurse-submodules git@github.com:YosysHQ/yosys.git $DIR/yosys
-    exit_on_failure "git clone yosys failed"
-    INSTALL_PATH=$DIR/yosys/install
-    mkdir -p $INSTALL_PATH
     cd $DIR/yosys
-    git checkout 29cf4a919062fe7b6a6f21b946dbec15a3d2114a
     git submodule update --recursive
     make install -j18 ENABLE_LIBYOSYS=1 PREFIX=$INSTALL_PATH
     exit_on_failure "Yosys build failed"
@@ -55,10 +45,7 @@ build_venv() {
 
 build_verilator() {
   DIR=$1
-  [ -d "$DIR/verilator" ] && return 0
-  git clone git@github.com:verilator/verilator.git $DIR/verilator
   cd $DIR/verilator
-  git checkout cfbcfd913c9cdc45198707d5476a55992fbe8303
 
   # mkdir -p $DIR/verilator/build && cd $DIR/verilator/build
   # cmake .. && make -j8

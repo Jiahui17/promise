@@ -27,7 +27,6 @@ a.out
 a.out.so
 bsc_outputs/
 yosys_output/
-ext/
 cosim/
 *.egg-info
 **/sim/

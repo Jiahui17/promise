@@ -1,0 +1,19 @@
+[submodule "ext/abc"]
+  path = ext/abc
+  url = https://github.com/berkeley-abc/abc.git
+  branch = master
+  shallow = true
+  ignore = untracked
+
+[submodule "ext/yosys"]
+  path = ext/yosys
+  url = https://github.com/YosysHQ/yosys.git
+  branch = main
+  shallow = false
+  ignore = untracked
+
+[submodule "ext/verilator"]
+  path = ext/verilator
+  url = https://github.com/verilator/verilator.git
+  branch = main
+  shallow = true
