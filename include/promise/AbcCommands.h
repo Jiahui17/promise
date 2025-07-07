@@ -1,8 +1,10 @@
 #pragma once
 
 // START: Symbols from libabc.so
+#include "base/main/mainInt.h"
 #include "promise/StringUtils.h"
 #include <iostream>
+#include <ostream>
 #include <stdexcept>
 #if defined(ABC_NAMESPACE)
 namespace ABC_NAMESPACE {
@@ -28,6 +30,11 @@ using namespace ABC_NAMESPACE;
 }
 #endif
 // END: Symbols from libabc.so
+
+#include <boost/json.hpp>
+#include <iostream>
+
+namespace json = boost::json;
 
 #include "base/abc/abc.h"
 
@@ -62,3 +69,48 @@ void runAbcCombOptimization(const std::string &filename,
 void runSequentialEquivalenceChecking(const std::string &source,
                                       const std::string &target,
                                       unsigned timeout);
+
+struct SynthResult {
+  unsigned nodes;
+  unsigned ffs;
+  unsigned levels;
+  void dumpJson(std::ostream &os) {
+    json::object obj;
+    obj["nodes"] = nodes;
+    obj["ffs"] = ffs;
+    obj["levels"] = levels;
+    os << json::serialize(obj);
+  }
+};
+
+struct SynthResultAig : public SynthResult {
+  SynthResultAig(Abc_Frame_t *pAbc) {
+    // Make a copy of the current network (so "st" won't do anything in
+    // place)
+    Abc_Ntk_t *pCopy = Abc_NtkDup(Abc_FrameReadNtk(pAbc));
+    assert(pAbc && "NULL network");
+    runAbcCommand(pAbc, "st");
+    Abc_Ntk_t *ntk = Abc_FrameReadNtk(pAbc);
+    nodes = Abc_NtkNodeNum(ntk);
+    ffs = Abc_NtkLatchNum(ntk);
+    levels = Abc_AigLevel(ntk);
+    // Recover the copy
+    Abc_FrameSetCurrentNetwork(pAbc, pCopy);
+  }
+};
+
+struct SynthResultLUT6 : public SynthResult {
+  SynthResultLUT6(Abc_Frame_t *pAbc) {
+    // Make a copy of the current network (so "if -K 6" won't do anything in
+    // place)
+    Abc_Ntk_t *pCopy = Abc_NtkDup(Abc_FrameReadNtk(pAbc));
+    assert(pAbc && "NULL network");
+    runAbcCommand(pAbc, "if -K 6");
+    Abc_Ntk_t *ntk = Abc_FrameReadNtk(pAbc);
+    nodes = Abc_NtkNodeNum(ntk);
+    ffs = Abc_NtkLatchNum(ntk);
+    levels = Abc_NtkLevel(ntk);
+    // Recover the copy
+    Abc_FrameSetCurrentNetwork(pAbc, pCopy);
+  }
+};

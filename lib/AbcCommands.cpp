@@ -11,6 +11,8 @@
 #include <sys/wait.h>
 #include <vector>
 
+#include "base/abc/abc.h"
+#include "base/main/main.h"
 #include "promise/AbcCommands.h"
 #include "promise/ShellUtils.h"
 #include "promise/StringUtils.h"
@@ -112,7 +114,6 @@ void runAbcScorrOptimization(const std::string &filename,
     runAbcCommand(pAbc, "zeropo -N " + std::to_string(numPOs - 1));
     runAbcCommand(pAbc, "removepo -N " + std::to_string(numPOs - 1));
   }
-
   runAbcCommand(pAbc, "if -K 6; ps");
   runAbcCommand(pAbc, "write_blif " + outputFileName);
 
