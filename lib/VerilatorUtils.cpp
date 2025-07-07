@@ -74,11 +74,11 @@ void createRandomTestBench(const std::filesystem::path &pathToVerilatorTb,
   os << "  top->" << clk << " = 0;\n";
   os << "  top->eval();\n";
   os << "  tfp->dump(0);\n";
+  os << "  top->" << rst << " = 0;\n";
   os << "  for (size_t i = 1; i < " << 2 * simCycles << "; ++i) {\n";
   os << "    top->" << clk << " = !top->" << clk << ";\n";
-  os << "    if (i==2) top->" << rst << " = 0;\n";
-
-  os << "    if (top->" << clk << "){\n";
+  os << "    // Update signal on the negedge\n";
+  os << "    if (!top->" << clk << "){\n";
   for (auto *inputSig : module->wires()) {
     if (inputSig->port_input && log_id(inputSig) != clk &&
         log_id(inputSig) != rst) {
