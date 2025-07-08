@@ -144,23 +144,23 @@ void flowScorr(RTLIL::Module *m, const std::filesystem::path &outputFile,
 
 void flowScorrEncoding(RTLIL::Module *m,
                        const std::filesystem::path &outputFile,
-                       const std::vector<LinearInvariant> &invariants,
+                       const std::vector<Invariant> &invariants,
                        unsigned inductionDepth);
 
 void flowScorrInvar(RTLIL::Module *m, const std::filesystem::path &outputFile,
-                    const std::vector<LinearInvariant> &invariants,
+                    const std::vector<Invariant> &invariants,
                     unsigned inductionDepth);
 
 void flowScorrInvarEncoding(RTLIL::Module *m,
                             const std::filesystem::path &outputFile,
-                            const std::vector<LinearInvariant> &invariants,
+                            const std::vector<Invariant> &invariants,
                             unsigned inductionDepth);
 
 ModelCheckingResult
 verifyLinearInvariants(const Iccad25Config &config, RTLIL::Module *m,
-                       const std::vector<LinearInvariant> &invariants);
+                       const std::vector<Invariant> &invariants);
 
-std::vector<LinearInvariant> inferInvariants(RTLIL::Module *module,
-                                             RTLIL::Design *design,
-                                             Iccad25Config &config,
-                                             const std::string &topName);
+std::vector<Invariant> inferInvariants(RTLIL::Module *module,
+                                       RTLIL::Design *design,
+                                       Iccad25Config &config,
+                                       const std::string &topName);

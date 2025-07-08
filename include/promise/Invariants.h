@@ -7,6 +7,7 @@
 
 #include <Eigen/Dense>
 #include <utility>
+#include <variant>
 
 USING_YOSYS_NAMESPACE
 
@@ -24,6 +25,43 @@ inline std::shared_ptr<PropAst> mkAst(const PropAst &n) {
   return std::make_shared<PropAst>(n);
 }
 
+// helper type for the visitor #4
+template <class... Ts>
+struct Overloaded : Ts... {
+  using Ts::operator()...;
+};
+// explicit deduction guide (not needed as of C++20)
+template <class... Ts>
+Overloaded(Ts...) -> Overloaded<Ts...>;
+
+/// \brief: Represent binary operators.
+///   Notable other alternatives: inherit
+///   struct MulOp : BinaryOp {...}; This makes updating the visitor logic
+///   complicated (a separate operator()(Ty...)) for each new derived type.
+///
+/// \example: "+" (ADD), "<=" (LE)
+struct BinaryOp {
+  enum OpType {
+    // Integer types
+    ADD,
+    MUL,
+
+    // Logical ones
+    IMPLIES,
+
+    // Any types
+    LE,
+    EQ,
+  };
+  OpType op;
+  std::shared_ptr<PropAst> lhs;
+  std::shared_ptr<PropAst> rhs;
+
+  BinaryOp(OpType op, std::shared_ptr<PropAst> lhs,
+           std::shared_ptr<PropAst> rhs)
+      : op(op), lhs(std::move(lhs)), rhs(std::move(rhs)){};
+};
+
 /// \brief: Represent unary operators
 ///
 /// \example: "!" (logical not), "~" (word-level negation), "AG" (an unary
@@ -38,115 +76,76 @@ struct UnaryOp {
       : op(op), arg(std::move(arg)){};
 };
 
-/// \brief: Represent binary operators
-///
-/// \example: "+" (ADD), "<=" (LE)
-struct BinaryOp {
-  enum OpType {
-    ADD,
-    MUL,
-    IMPLIES,
-    LE,
-    EQ,
-  };
-  OpType op;
-  std::shared_ptr<PropAst> lhs;
-  std::shared_ptr<PropAst> rhs;
-
-  BinaryOp(OpType op, std::shared_ptr<PropAst> lhs,
-           std::shared_ptr<PropAst> rhs)
-      : op(op), lhs(std::move(lhs)), rhs(std::move(rhs)){};
-};
-
-/// A wrapper struct for dumping the AST as a string
-struct PrintVisitor {
-
-  std::string operator()(const int &n) const { return std::to_string(n); }
-  std::string operator()(const RTLIL::IdString &n) const { return log_id(n); }
-
-  std::string operator()(const BinaryOp &n) const {
-    const std::map<BinaryOp::OpType, string> tyToStr = {
-        {BinaryOp::ADD, "+"}, {BinaryOp::MUL, "*"}, {BinaryOp::IMPLIES, "->"},
-        {BinaryOp::LE, "<="}, {BinaryOp::EQ, "=="},
-    };
-    assert(tyToStr.count(n.op) > 0 && "Unknown binary operator!");
-    std::stringstream ss;
-    ss << "(" << visit(n.lhs) << " " << tyToStr.at(n.op) << " " << visit(n.rhs)
-       << ")";
-    return ss.str();
-  }
-
-  std::string operator()(const UnaryOp &n) const {
-    const std::map<UnaryOp::OpType, string> tyToStr = {
-        {UnaryOp::LNOT, "!"},
-    };
-    assert(tyToStr.count(n.op) > 0 && "Unknown unary operator!");
-    return tyToStr.at(n.op) + " " + visit(n.arg);
-  }
-
-  std::string visit(const std::shared_ptr<PropAst> &n) const {
-    // Remark for future visitors: this method complains if not all variant was
-    // implemented.
-    return std::visit(*this, *n);
-  }
-};
-
 /// \brief: A container class for adding various sanity checking on the AST
 struct Invariant {
   std::shared_ptr<PropAst> ast;
   Invariant(std::shared_ptr<PropAst> ast) : ast(std::move(ast)){};
+
+  /// \brief: A wrapper struct for dumping the AST as a string
+  struct PrintVisitor {
+    std::string operator()(const int &n) const { return std::to_string(n); }
+    std::string operator()(const RTLIL::IdString &n) const { return log_id(n); }
+    std::string operator()(const BinaryOp &n) const {
+      const std::map<BinaryOp::OpType, string> tyToStr = {
+          {BinaryOp::ADD, "+"}, {BinaryOp::MUL, "*"}, {BinaryOp::IMPLIES, "->"},
+          {BinaryOp::LE, "<="}, {BinaryOp::EQ, "=="},
+      };
+      assert(tyToStr.count(n.op) > 0 && "Unknown binary operator!");
+      std::stringstream ss;
+      ss << "(" << visit(n.lhs) << " " << tyToStr.at(n.op) << " "
+         << visit(n.rhs) << ")";
+      return ss.str();
+    }
+
+    std::string operator()(const UnaryOp &n) const {
+      const std::map<UnaryOp::OpType, string> tyToStr = {
+          {UnaryOp::LNOT, "!"},
+      };
+      assert(tyToStr.count(n.op) > 0 && "Unknown unary operator!");
+      return "(" + tyToStr.at(n.op) + visit(n.arg) + ")";
+    }
+
+    std::string visit(const std::shared_ptr<PropAst> &n) const {
+      // Remark for future visitors: this method complains if not all variant
+      // was implemented.
+      return std::visit(*this, *n);
+    }
+  };
+
+  struct CalculateDegreeVisitor {
+    unsigned operator()(int) const { return 0; }
+    unsigned operator()(const RTLIL::IdString &) const { return 1; }
+    unsigned operator()(const UnaryOp &n) const {
+      assert(n.op == UnaryOp::LNOT);
+      return visit(n.arg);
+    }
+    unsigned operator()(const BinaryOp &n) const {
+      if (n.op == BinaryOp::ADD || n.op == BinaryOp::LE ||
+          n.op == BinaryOp::EQ) {
+        return max(visit(n.lhs), visit(n.rhs));
+      }
+      if (n.op == BinaryOp::MUL) {
+        return visit(n.lhs) + visit(n.rhs);
+      }
+      assert(false && "Invalid operation type for calculating the degree");
+    }
+    unsigned visit(const std::shared_ptr<PropAst> &n) const {
+      // Remark for future visitors: this method complains if not all variant
+      // was implemented.
+      return std::visit(*this, *n);
+    }
+  };
+
   std::string toString() const {
     PrintVisitor visitor;
     return visitor.visit(ast);
   }
-};
 
-/// \brief A LinearInvariant represents a linear equality/inequality.  In
-/// general, a linear invariant can be:
-/// - A linear equality: C_1 * x_1 + C_2 * x_2 + ... + C_N * x_n + const == 0;
-/// - A Linear inequality: C_1 * x_1 + C_2 * x_2 + ... + C_N * x_n + const <= 0.
-/// where C_* are integer coefficients, x_* are the variables.
-///
-/// \example A example of a linear invariant that a instance represents:
-///     (!x_1) + 2 * x_2 + 3 == 0;
-struct LinearInvariant {
-  // The predicate symbols
-  enum Predicate {
-    EQUAL,
-    LESS_THAN_OR_EQUAL,
+  // Sanity checks
+  bool isLinearInvariant() const {
+    auto visitor = CalculateDegreeVisitor();
+    return visitor.visit(ast) <= 1;
   };
-
-  Predicate predicate;
-
-  /// \brief The constant term in the linear invariant.
-  ///
-  /// \example The constant term in the following linear invariant is 3:
-  ///     x_1 + 2 * x_2 + 3 == 0;
-  int constant;
-
-  const std::map<Predicate, std::string> dumpPredicateMap = {
-      {LinearInvariant::EQUAL, "=="},
-      {LinearInvariant::LESS_THAN_OR_EQUAL, "<="},
-  };
-
-  /// \brief The constant coefficients (i.e., C_*) of the linear expression.
-  std::vector<int> coefficients;
-
-  /// \brief The variables (i.e., the x_*) in the linear expression. NOTE:
-  /// Another option is to use "Wire *" instead of IdString. But that option
-  /// requires additional rewriting of the invariant when we clone the module.
-  std::vector<RTLIL::IdString> variables;
-
-  /// \brief Is the variable negated. NOTE: the variables must be single-bit to
-  /// be negated.  This is used to represent the negation of a variable in the
-  /// linear invariant.
-  ///
-  /// \example: The following linear invariant has a negated variable x_1:
-  ///     (!x_1) + 2 * x_2 + 3 == 0;
-  /// Therefore, isNegated will be {true, false}
-  std::vector<bool> isNegated;
-
-  std::string dump() const;
 };
 
 /// \brief Generate a set of linear equalities from the given matrix.
@@ -157,9 +156,9 @@ struct LinearInvariant {
 /// \param signals: The list of signal names corresponding to the columns of the
 /// matrix.
 ///
-/// \return: A vector of LinearInvariant objects representing the linear
+/// \return: A vector of "Invariant" objects representing the linear
 /// equalities
-std::vector<LinearInvariant>
+std::vector<Invariant>
 inferLinearEqualities(RTLIL::Module *module, const Eigen::MatrixXi &matrix,
                       const std::vector<RTLIL::IdString> &signals);
 
@@ -171,8 +170,8 @@ inferLinearEqualities(RTLIL::Module *module, const Eigen::MatrixXi &matrix,
 /// \param signals: The list of signal names corresponding to the columns of the
 /// matrix. NOTE: the signals must be single-bit signals.
 ///
-/// \return: A vector of LinearInvariant objects representing the linear
+/// \return: A vector of "Invariant" objects representing the linear
 /// equalities
-std::vector<LinearInvariant> inferLinearInequalitiesViaConflictGraph(
+std::vector<Invariant> inferLinearInequalitiesViaConflictGraph(
     RTLIL::Module *module, const Eigen::MatrixXi &matrix,
     const std::vector<RTLIL::IdString> &signals);

@@ -116,4 +116,4 @@ struct StateMappingTable {
 /// \param invariants: the set of invariants to extract the encoding
 /// optimizations from.
 void applyEncodingOptimizationUsingInvariants(
-    RTLIL::Module *module, const std::vector<LinearInvariant> &invariants);
+    RTLIL::Module *module, const std::vector<Invariant> &invariants);

@@ -77,9 +77,9 @@ Eigen::MatrixXi getUniqueRows(const vector<Eigen::MatrixXi> &matrices) {
 
 // Attempt to prove the invariant and return the model checking result (which
 // contains the analyzed counterexample data if the property failed).
-ModelCheckingResult
-verifyInvariant(const SynthesisFlowConfig &config, RTLIL::Module *m,
-                const std::vector<LinearInvariant> &invariants) {
+ModelCheckingResult verifyInvariant(const SynthesisFlowConfig &config,
+                                    RTLIL::Module *m,
+                                    const std::vector<Invariant> &invariants) {
 
   RTLIL::Design *design = new RTLIL::Design;
 
@@ -138,7 +138,7 @@ void applyCombinationalOptimization(const SynthesisFlowConfig &config,
 // Assuming that the conjunction of the invariants is proven, use scorr in ABC
 // with invariants to optimize the design
 void applyScorrOptimization(const SynthesisFlowConfig &config, RTLIL::Module *m,
-                            const std::vector<LinearInvariant> &invariants) {
+                            const std::vector<Invariant> &invariants) {
 
   RTLIL::Design *design = new RTLIL::Design;
 
@@ -180,7 +180,7 @@ void applyScorrOptimization(const SynthesisFlowConfig &config, RTLIL::Module *m,
 
 void applyEncodingOptimization(const SynthesisFlowConfig &config,
                                RTLIL::Module *m,
-                               const std::vector<LinearInvariant> &invariants) {
+                               const std::vector<Invariant> &invariants) {
   RTLIL::Design *design = new RTLIL::Design;
 
   // Clone the design
@@ -272,10 +272,10 @@ bool synthesisFlow(SynthesisFlowConfig config, RTLIL::Design *design,
   auto signalMatrix = getUniqueRows(simData);
 
   // [STEP]: Suggest invariants from the signalMatrix:
-  std::vector<LinearInvariant> linearInvariants =
+  std::vector<Invariant> linearInvariants =
       inferLinearEqualities(m, signalMatrix, singleBitRegOuts);
 
-  std::vector<LinearInvariant> linearInequalities =
+  std::vector<Invariant> linearInequalities =
       inferLinearInequalitiesViaConflictGraph(m, signalMatrix,
                                               singleBitRegOuts);
 

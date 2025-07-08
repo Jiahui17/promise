@@ -2,6 +2,7 @@
 #include <bitset>
 #include <csignal>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -171,14 +172,61 @@ void mergeMutexFFs(RTLIL::Module *module, const EncodingOptConfig &config) {
   module->fixup_ports();
 }
 
+/// \TODO: We need a more robust sanity check for this
 // Check if the invariants describes a set of mutually exclusive FFs, e.g., f_1
 // + (!f_2) + f_3 + (!f_4) + ... + f_N <= 1
-bool isMutexFFInvariant(LinearInvariant inv) {
-  return (inv.constant == -1) &&
-         (inv.predicate == LinearInvariant::LESS_THAN_OR_EQUAL) &&
-         (std::all_of(inv.coefficients.begin(), inv.coefficients.end(),
-                      [](int coeff) { return coeff == 1; }));
+bool isMutexFFInvariant(const Invariant &inv) {
+  if (!inv.isLinearInvariant()) {
+    return false;
+  }
+  BinaryOp *node = std::get_if<BinaryOp>(inv.ast.get());
+  if (!node || node->op != BinaryOp::LE) {
+    return false;
+  }
+
+  Invariant::CalculateDegreeVisitor visitor;
+
+  unsigned degree = visitor.visit(node->lhs);
+  if (degree != 1) {
+    return false;
+  }
+
+  int *rhsNode = std::get_if<int>(node->rhs.get());
+
+  return rhsNode && *rhsNode == 1;
 }
+
+// Get the wires (FF outputs) and if they are negated.
+struct MutexInvariantVisitor {
+  std::vector<IdString> wires;
+  std::vector<bool> isNegated;
+
+  void operator()(const int) {}
+  void operator()(const IdString &n) {
+    wires.push_back(n);
+    isNegated.push_back(false);
+  }
+
+  void operator()(const UnaryOp &n) {
+    assert(n.op == UnaryOp::LNOT && "Violated assumption of Mutex invariant!");
+    IdString *sig = std::get_if<IdString>(n.arg.get());
+    assert(sig);
+    wires.push_back(*sig);
+    isNegated.push_back(true);
+  }
+
+  void operator()(const BinaryOp &n) {
+    assert((n.op == BinaryOp::ADD || n.op == BinaryOp::LE) &&
+           "Violated assumption of Mutex invariant!");
+    visit(n.lhs);
+    visit(n.rhs);
+  }
+
+  void visit(const std::shared_ptr<PropAst> &n) {
+    std::visit(*this, *n);
+    assert(wires.size() == isNegated.size());
+  }
+};
 
 // This function performs encoding optimization, which includes the following
 // steps:
@@ -189,11 +237,14 @@ bool isMutexFFInvariant(LinearInvariant inv) {
 // - Construct a StateMappingTable the determines the encoding and decoding
 // functions
 // - Apply the optimization
-void mergeMutexFFsUsingInvariant(RTLIL::Module *module,
-                                 const LinearInvariant &inv) {
+void mergeMutexFFsUsingInvariant(RTLIL::Module *module, const Invariant &inv) {
   assert(isMutexFFInvariant(inv));
-  std::cerr << "Using invariant: " << inv.dump()
+  std::cerr << "Using invariant: " << inv.toString()
             << " to optimize the encoding\n";
+
+  MutexInvariantVisitor visitor;
+
+  visitor.visit(inv.ast);
 
   // Find the set of FFs: here we assume that the variables in the invariants
   // are directly driven by FF cells
@@ -201,9 +252,9 @@ void mergeMutexFFsUsingInvariant(RTLIL::Module *module,
   // We also need to track if ff is negated (~f_1) in the invariant to find
   // the right initial state
   boost::dynamic_bitset<> originalInitialState;
-  for (size_t i = 0; i < inv.variables.size(); ++i) {
+  for (size_t i = 0; i < visitor.wires.size(); ++i) {
 
-    RTLIL::Cell *ff = getDriverCell(module, module->wire(inv.variables[i]));
+    RTLIL::Cell *ff = getDriverCell(module, module->wire(visitor.wires[i]));
 
     // If the FF doesn't exist (e.g., the FF was optimized away in some other
     // invariants), we skip to the next invariant
@@ -225,7 +276,7 @@ void mergeMutexFFsUsingInvariant(RTLIL::Module *module,
       continue;
     }
 
-    auto isNegated = inv.isNegated[i];
+    auto isNegated = visitor.isNegated[i];
 
     SigMap sigmap(module);
     FfInitVals initVals(&sigmap, module);
@@ -275,7 +326,7 @@ void mergeMutexFFsUsingInvariant(RTLIL::Module *module,
 }
 
 void applyEncodingOptimizationUsingInvariants(
-    RTLIL::Module *module, const std::vector<LinearInvariant> &invariants) {
+    RTLIL::Module *module, const std::vector<Invariant> &invariants) {
 
   // Once the FF is processed, we just exclude it from the set of invariants
   std::set<RTLIL::IdString> processedFFs;

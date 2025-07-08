@@ -11,6 +11,6 @@
 /// \param trimOriginalOutputs: remove the original POs from the module
 /// \param separateInvariants: separate invariant pins
 void instrumentInvariants(RTLIL::Module *m,
-                          const std::vector<LinearInvariant> &invariants,
+                          const std::vector<Invariant> &invariants,
                           bool trimOriginalOutputs = true,
                           bool separateInvariants = false);

@@ -137,7 +137,7 @@ void runSimulation(const std::filesystem::path &objDir,
 // contains the analyzed counterexample data if the property failed).
 ModelCheckingResult
 verifyLinearInvariants(const Iccad25Config &config, RTLIL::Module *m,
-                       const std::vector<LinearInvariant> &invariants) {
+                       const std::vector<Invariant> &invariants) {
 
   RTLIL::Design *design = new RTLIL::Design;
 
@@ -216,10 +216,10 @@ AigPrintStatsRes reportAigUsage(const std::string &blifFile) {
   throw std::runtime_error("Cannot parse ABC output\n");
 }
 
-std::vector<LinearInvariant> inferInvariants(RTLIL::Module *module,
-                                             RTLIL::Design *design,
-                                             Iccad25Config &config,
-                                             const std::string &topName) {
+std::vector<Invariant> inferInvariants(RTLIL::Module *module,
+                                       RTLIL::Design *design,
+                                       Iccad25Config &config,
+                                       const std::string &topName) {
 
   // RTLIL::Module *module = design->module(RTLIL::escape_id(topName));
 
@@ -262,14 +262,14 @@ std::vector<LinearInvariant> inferInvariants(RTLIL::Module *module,
   auto signalMatrix = getUniqueRows(simData);
 
   // [STEP]: Suggest invariants from the signalMatrix:
-  std::vector<LinearInvariant> linearInvariants;
+  std::vector<Invariant> linearInvariants;
   {
     Timer t(RUNTIME_LINEAR_EQUALITY);
     linearInvariants =
         inferLinearEqualities(module, signalMatrix, singleBitRegOuts);
   }
 
-  std::vector<LinearInvariant> linearInequalities;
+  std::vector<Invariant> linearInequalities;
   {
     Timer t(RUNTIME_LINEAR_INEQUALITY);
     linearInequalities = inferLinearInequalitiesViaConflictGraph(
@@ -435,7 +435,7 @@ void flowScorr(RTLIL::Module *m, const std::filesystem::path &outputFile,
 // Technique: Comb + Scorr
 void flowScorrEncoding(RTLIL::Module *m,
                        const std::filesystem::path &outputFile,
-                       const std::vector<LinearInvariant> &invariants,
+                       const std::vector<Invariant> &invariants,
                        unsigned inductionDepth) {
   RTLIL::Design *design = new RTLIL::Design;
 
@@ -463,7 +463,7 @@ void flowScorrEncoding(RTLIL::Module *m,
 }
 
 void flowScorrInvar(RTLIL::Module *m, const std::filesystem::path &outputFile,
-                    const std::vector<LinearInvariant> &invariants,
+                    const std::vector<Invariant> &invariants,
                     unsigned inductionDepth) {
   RTLIL::Design *design = new RTLIL::Design;
 
@@ -496,7 +496,7 @@ void flowScorrInvar(RTLIL::Module *m, const std::filesystem::path &outputFile,
 
 void flowScorrInvarEncoding(RTLIL::Module *m,
                             const std::filesystem::path &outputFile,
-                            const std::vector<LinearInvariant> &invariants,
+                            const std::vector<Invariant> &invariants,
                             unsigned inductionDepth) {
   RTLIL::Design *design = new RTLIL::Design;
 

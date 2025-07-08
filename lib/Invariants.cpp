@@ -16,6 +16,7 @@
 
 #include <iostream>
 #include <map>
+#include <memory>
 #include <string>
 #include <sys/wait.h>
 
@@ -26,52 +27,7 @@ using Vertex_size_t = boost::graph_traits<Graph>::vertices_size_type;
 using vertex_index_map =
     boost::property_map<Graph, boost::vertex_index_t>::const_type;
 
-std::string LinearInvariant::dump() const {
-  std::stringstream ss;
-
-  assert(variables.size() == coefficients.size());
-  assert(variables.size() == isNegated.size());
-  for (auto [w, c, n] : boost::combine(variables, coefficients, isNegated)) {
-    if (c > 0) {
-      if (c > 1)
-        ss << c << "*";
-      if (n) {
-        ss << "(! " << log_id(w) << ")";
-      } else {
-        ss << log_id(w);
-      }
-      ss << "+ ";
-    }
-  }
-  if (constant > 0) {
-    ss << " " << constant;
-  } else {
-    ss << " 0";
-  }
-
-  ss << dumpPredicateMap.at(predicate);
-  for (auto [w, c, n] : boost::combine(variables, coefficients, isNegated)) {
-    if (c < 0) {
-      if (c < -1) {
-        ss << -c << "*";
-      }
-      if (n) {
-        ss << "(! " << log_id(w) << ")";
-      } else {
-        ss << log_id(w);
-      }
-      ss << "+ ";
-    }
-  }
-  if (constant < 0) {
-    ss << " " << -constant;
-  } else {
-    ss << " 0";
-  }
-  return ss.str();
-}
-
-std::vector<LinearInvariant>
+std::vector<Invariant>
 inferLinearEqualities(RTLIL::Module *module, const Eigen::MatrixXi &matrix,
                       const std::vector<RTLIL::IdString> &signals) {
 
@@ -93,31 +49,59 @@ inferLinearEqualities(RTLIL::Module *module, const Eigen::MatrixXi &matrix,
   // form: a1 * x1 + a2 * x2 + ... + an * xn = 0 where a1, a2, ..., an are the
   // coefficients from the basis vector and x1, x2, ..., xn are the signal
   // names.
-  std::vector<LinearInvariant> invariants;
+  std::vector<Invariant> properties;
+
+  auto makeTerm = [](int coeff, RTLIL::IdString id) {
+    auto varAst = mkAst(id);
+    if (coeff > 1) {
+      auto coeffAst = mkAst(coeff);
+      return mkAst(BinaryOp(BinaryOp::MUL, coeffAst, varAst));
+    }
+    return varAst;
+  };
+
+  auto sumTerms = [](const std::vector<std::shared_ptr<PropAst>> &terms) {
+    std::shared_ptr<PropAst> ast;
+    if (terms.empty()) {
+      return mkAst(0);
+    }
+    ast = terms[0];
+    for (size_t j = 1; j < terms.size(); ++j) {
+      ast = mkAst(BinaryOp(BinaryOp::ADD, ast, terms[j]));
+    }
+    return ast;
+  };
+
   for (const auto &vec : basis) {
-
-    LinearInvariant inv;
-    inv.constant = vec(/*last element in the basis vector*/ signals.size());
-    inv.predicate = LinearInvariant::EQUAL;
+    std::vector<std::shared_ptr<PropAst>> lhsTerms;
+    std::vector<std::shared_ptr<PropAst>> rhsTerms;
     for (size_t i = 0; i < signals.size(); ++i) {
-      // Check if the wire exists in the module
-      assert(module->wire(signals[i]) &&
-             "The signal identifier doesn't correspond to any signals!");
-
-      if (vec(i) != 0) {
-        inv.variables.emplace_back(signals[i]);
-        inv.coefficients.emplace_back(vec(i));
-        inv.isNegated.emplace_back(false);
+      if (vec(i) > 0) {
+        lhsTerms.push_back(makeTerm(vec[i], signals[i]));
+      } else if (vec(i) < 0) {
+        rhsTerms.push_back(makeTerm(-vec[i], signals[i]));
       }
     }
-    if (!inv.variables.empty()) {
-      invariants.push_back(inv);
+
+    auto constTerm = vec(/*last element in the basis vector*/
+                         signals.size());
+
+    if (constTerm > 0) {
+      lhsTerms.push_back(mkAst(constTerm));
+    } else if (constTerm < 0) {
+      rhsTerms.push_back(mkAst(-constTerm));
     }
+
+    auto lhsAst = sumTerms(lhsTerms);
+    auto rhsAst = sumTerms(rhsTerms);
+
+    properties.emplace_back(mkAst(BinaryOp(BinaryOp::EQ, lhsAst, rhsAst)));
   }
-  return invariants;
+
+  return properties;
 }
 
-std::vector<LinearInvariant> inferLinearInequalitiesViaConflictGraph(
+std::vector<Invariant> inferLinearInequalitiesViaConflictGraph(
     RTLIL::Module *module, const Eigen::MatrixXi &matrix,
     const std::vector<RTLIL::IdString> &signals) {
 
@@ -180,22 +164,41 @@ std::vector<LinearInvariant> inferLinearInequalitiesViaConflictGraph(
     nodesPerColor[c].push_back(v);
   }
 
-  std::vector<LinearInvariant> invariants;
-  // Print nodes per color
+  // For a given identifier name id, returns an ast that is either representing
+  // the signal itself (id) or its complement (!id).
+  auto makeTerm = [](bool isNegated, RTLIL::IdString id) {
+    auto varAst = mkAst(id);
+    if (isNegated) {
+      return mkAst(UnaryOp(UnaryOp::LNOT, varAst));
+    }
+    return varAst;
+  };
+
+  auto sumTerms = [](const std::vector<std::shared_ptr<PropAst>> &terms) {
+    std::shared_ptr<PropAst> ast;
+    if (terms.empty()) {
+      return mkAst(0);
+    }
+    ast = terms[0];
+    for (size_t j = 1; j < terms.size(); ++j) {
+      ast = mkAst(BinaryOp(BinaryOp::ADD, ast, terms[j]));
+    }
+    return ast;
+  };
+
+  std::vector<Invariant> properties;
 
   for (const auto &compatibleSignals : nodesPerColor) {
     if (compatibleSignals.size() > 1) {
-      LinearInvariant inv;
-      inv.constant = -1;
-      inv.predicate = LinearInvariant::LESS_THAN_OR_EQUAL;
+      std::vector<std::shared_ptr<PropAst>> terms;
       for (size_t id : compatibleSignals) {
         auto [wire, isNegated] = sigNameWithIsNegated[id];
-        inv.variables.push_back(wire);
-        inv.coefficients.push_back(1);
-        inv.isNegated.push_back(isNegated);
+        terms.push_back(makeTerm(isNegated, wire));
       }
-      invariants.push_back(inv);
+      auto invAst = mkAst(BinaryOp(BinaryOp::LE, sumTerms(terms), mkAst(1)));
+      properties.emplace_back(invAst);
     }
   }
-  return invariants;
+
+  return properties;
 }
