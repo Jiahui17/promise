@@ -153,7 +153,7 @@ verifyLinearInvariants(const Iccad25Config &config, RTLIL::Module *m,
                        /* separateInvariants = */ false);
 
   auto miterVerilog = config.getCurrentProofDir() / "to_verify.v";
-  run_pass("write_verilog " + miterVerilog.string(), design);
+  run_pass("opt_clean; write_verilog " + miterVerilog.string(), design);
 
   auto miterBlif = config.getCurrentProofDir() / "to_verify.blif";
   run_pass("techmap; write_blif " + miterBlif.string(), design);
