@@ -3,6 +3,8 @@
 #include "kernel/yosys_common.h"
 #include "promise/LinearAlgebra.h"
 #include <boost/graph/adjacency_list.hpp>
+#include <boost/graph/bron_kerbosch_all_cliques.hpp>
+#include <boost/graph/detail/adjacency_list.hpp>
 #include <cstddef>
 
 #include <Eigen/Dense>
@@ -40,15 +42,6 @@ inferLinearEqualities(RTLIL::Module *module, const Eigen::MatrixXi &matrix,
   std::vector<Eigen::VectorXi> basis =
       computeBasisOfNullSpace(matrixWithConst1);
 
-  // Write basis vectors.
-  // Format:
-  // - The first row is the header with signal names.
-  // - Each subsequent row corresponds to a basis vector, with values
-  // separated by commas.
-  // To recover the equalities: Each row represents a linear equality of the
-  // form: a1 * x1 + a2 * x2 + ... + an * xn = 0 where a1, a2, ..., an are the
-  // coefficients from the basis vector and x1, x2, ..., xn are the signal
-  // names.
   std::vector<Invariant> properties;
 
   auto makeTerm = [](int coeff, RTLIL::IdString id) {
@@ -101,6 +94,74 @@ inferLinearEqualities(RTLIL::Module *module, const Eigen::MatrixXi &matrix,
   return properties;
 }
 
+using CompatibleNodes = std::vector<size_t>;
+
+std::vector<CompatibleNodes>
+getMutexSignalsViaGreedyGraphColoring(const Graph &signalConflictGraph) {
+
+  std::vector<size_t> colorVec(boost::num_vertices(signalConflictGraph), 0);
+  auto indexMap = boost::get(boost::vertex_index, signalConflictGraph);
+  auto colorMap = make_safe_iterator_property_map(colorVec.begin(),
+                                                  colorVec.size(), indexMap);
+  auto numColors =
+      boost::sequential_vertex_coloring(signalConflictGraph, colorMap);
+
+  std::vector<std::vector<size_t>> nodesPerColor(numColors);
+
+  // Group vertices by their color
+  for (size_t v = 0; v < colorVec.size(); ++v) {
+    size_t c = colorVec[v];
+    nodesPerColor[c].push_back(v);
+  }
+  return nodesPerColor;
+}
+
+struct CompatibleSignalsCollector {
+  std::vector<CompatibleNodes> &cliques;
+
+  template <typename VertexSetTy>
+  void clique(const VertexSetTy &cliqueIter, const Graph &g) {
+    CompatibleNodes clique;
+
+    for (typename VertexSetTy::const_iterator i = cliqueIter.begin();
+         i != cliqueIter.end(); ++i) {
+      size_t node = *i;
+      clique.push_back(node);
+    }
+    cliques.push_back(clique);
+    assert(!clique.empty());
+  }
+
+  CompatibleSignalsCollector(std::vector<CompatibleNodes> &cliques)
+      : cliques(cliques){};
+};
+
+std::vector<CompatibleNodes>
+getMutexSignalsViaCliqueEnumeration(const Graph &signalConflictGraph) {
+
+  typedef boost::graph_traits<Graph>::vertex_descriptor Vertex;
+
+  Graph signalCompatGraph(signalConflictGraph.vertex_set().size());
+
+  // Build the compatibility graph:
+  // If there are no edge between two nodes in the conflict graph, then we add
+  // an edge in the compatibility graph
+  for (Vertex u = 0; u < boost::num_vertices(signalConflictGraph); ++u) {
+    for (Vertex v = 0; v < boost::num_vertices(signalConflictGraph); ++v) {
+      if (!boost::edge(u, v, signalConflictGraph).second) {
+        boost::add_edge(u, v, signalCompatGraph);
+      }
+    }
+  }
+
+  std::vector<CompatibleNodes> cliques;
+  CompatibleSignalsCollector collector(cliques);
+
+  boost::bron_kerbosch_all_cliques(signalCompatGraph, collector, 2);
+
+  return cliques;
+}
+
 std::vector<Invariant> inferLinearInequalitiesViaConflictGraph(
     RTLIL::Module *module, const Eigen::MatrixXi &matrix,
     const std::vector<RTLIL::IdString> &signals) {
@@ -149,21 +210,6 @@ std::vector<Invariant> inferLinearInequalitiesViaConflictGraph(
     }
   }
 
-  std::vector<size_t> colorVec(boost::num_vertices(signalConflictGraph), 0);
-  auto indexMap = boost::get(boost::vertex_index, signalConflictGraph);
-  auto colorMap = make_safe_iterator_property_map(colorVec.begin(),
-                                                  colorVec.size(), indexMap);
-  auto numColors =
-      boost::sequential_vertex_coloring(signalConflictGraph, colorMap);
-
-  std::vector<std::vector<size_t>> nodesPerColor(numColors);
-
-  // Group vertices by their color
-  for (size_t v = 0; v < colorVec.size(); ++v) {
-    size_t c = colorVec[v];
-    nodesPerColor[c].push_back(v);
-  }
-
   // For a given identifier name id, returns an ast that is either representing
   // the signal itself (id) or its complement (!id).
   auto makeTerm = [](bool isNegated, RTLIL::IdString id) {
@@ -185,6 +231,13 @@ std::vector<Invariant> inferLinearInequalitiesViaConflictGraph(
     }
     return ast;
   };
+
+  std::vector<CompatibleNodes> nodesPerColor =
+      getMutexSignalsViaGreedyGraphColoring(signalConflictGraph);
+
+  // NOTE: Enumerate all maximal cliques is extremely time consuming!
+  // std::vector<CompatibleNodes> nodesPerColor =
+  //     getMutexSignalsViaCliqueEnumeration(signalConflictGraph);
 
   std::vector<Invariant> properties;
 
