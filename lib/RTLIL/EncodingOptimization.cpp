@@ -179,12 +179,13 @@ bool isMutexFFInvariant(const Invariant &inv) {
   if (!inv.isLinearInvariant()) {
     return false;
   }
-  BinaryOp *node = std::get_if<BinaryOp>(inv.ast.get());
-  if (!node || node->op != BinaryOp::LE) {
+  // Assumption: the root node is a comparison node predicate = LE
+  BinaryOp *node = std::get_if<LeOp>(inv.ast.get());
+  if (!node) {
     return false;
   }
 
-  Invariant::CalculateDegreeVisitor visitor;
+  CalculateDegreeVisitor visitor;
 
   unsigned degree = visitor.visit(node->lhs);
   if (degree != 1) {
@@ -192,7 +193,6 @@ bool isMutexFFInvariant(const Invariant &inv) {
   }
 
   int *rhsNode = std::get_if<int>(node->rhs.get());
-
   return rhsNode && *rhsNode == 1;
 }
 
@@ -207,20 +207,27 @@ struct MutexInvariantVisitor {
     isNegated.push_back(false);
   }
 
-  void operator()(const UnaryOp &n) {
-    assert(n.op == UnaryOp::LNOT && "Violated assumption of Mutex invariant!");
+  void operator()(const LNotOp &n) {
     IdString *sig = std::get_if<IdString>(n.arg.get());
     assert(sig);
     wires.push_back(*sig);
     isNegated.push_back(true);
   }
 
-  void operator()(const BinaryOp &n) {
-    assert((n.op == BinaryOp::ADD || n.op == BinaryOp::LE) &&
-           "Violated assumption of Mutex invariant!");
+  void operator()(const AddOp &n) {
     visit(n.lhs);
     visit(n.rhs);
   }
+
+  void operator()(const LeOp &n) {
+    visit(n.lhs);
+    visit(n.rhs);
+  }
+
+  void operator()(const EqOp &) { assert(false && "Illegal operator"); }
+
+  void operator()(const MulOp &) { assert(false && "Illegal operator"); }
+  void operator()(const ImpliesOp &) { assert(false && "Illegal operator"); }
 
   void visit(const std::shared_ptr<PropAst> &n) {
     std::visit(*this, *n);
@@ -239,8 +246,6 @@ struct MutexInvariantVisitor {
 // - Apply the optimization
 void mergeMutexFFsUsingInvariant(RTLIL::Module *module, const Invariant &inv) {
   assert(isMutexFFInvariant(inv));
-  std::cerr << "Using invariant: " << inv.toString()
-            << " to optimize the encoding\n";
 
   MutexInvariantVisitor visitor;
 
@@ -314,6 +319,9 @@ void mergeMutexFFsUsingInvariant(RTLIL::Module *module, const Invariant &inv) {
   // Create a StateMappingTable
   auto tbl =
       StateMappingTable::mappingForMutexFFs(ffToBeMerged.size(), encodedWidth);
+
+  std::cerr << "[DEBUG] Apply FF merging opt. Initial #FFs = "
+            << ffToBeMerged.size() << " Final #FFs = " << encodedWidth << "\n";
 
   auto encodedInitialState = tbl.getEncodedState(originalInitialState);
 

@@ -12,13 +12,19 @@
 USING_YOSYS_NAMESPACE
 
 // Forward declaration
-struct UnaryOp;
-struct BinaryOp;
+struct AddOp;
+struct MulOp;
+struct ImpliesOp;
+struct LeOp;
+struct EqOp;
+
+struct LNotOp;
 
 /// \brief: A type union for representing an arbitrary formula.
 ///
 /// \example: "((3 * (a * b)) + (a -> c) <= 0)"
-using PropAst = std::variant<int, Yosys::RTLIL::IdString, UnaryOp, BinaryOp>;
+using PropAst = std::variant<int, Yosys::RTLIL::IdString, AddOp, MulOp,
+                             ImpliesOp, LeOp, EqOp, LNotOp>;
 
 /// \brief: Syntax sugar for std::make_shared<PropAst>(...)
 inline std::shared_ptr<PropAst> mkAst(const PropAst &n) {
@@ -41,25 +47,11 @@ Overloaded(Ts...) -> Overloaded<Ts...>;
 ///
 /// \example: "+" (ADD), "<=" (LE)
 struct BinaryOp {
-  enum OpType {
-    // Integer types
-    ADD,
-    MUL,
-
-    // Logical ones
-    IMPLIES,
-
-    // Any types
-    LE,
-    EQ,
-  };
-  OpType op;
   std::shared_ptr<PropAst> lhs;
   std::shared_ptr<PropAst> rhs;
 
-  BinaryOp(OpType op, std::shared_ptr<PropAst> lhs,
-           std::shared_ptr<PropAst> rhs)
-      : op(op), lhs(std::move(lhs)), rhs(std::move(rhs)){};
+  BinaryOp(std::shared_ptr<PropAst> lhs, std::shared_ptr<PropAst> rhs)
+      : lhs(std::move(lhs)), rhs(std::move(rhs)){};
 };
 
 /// \brief: Represent unary operators
@@ -67,74 +59,118 @@ struct BinaryOp {
 /// \example: "!" (logical not), "~" (word-level negation), "AG" (an unary
 /// temporal operator).
 struct UnaryOp {
-  enum OpType {
-    LNOT,
-  };
-  OpType op;
   std::shared_ptr<PropAst> arg;
-  UnaryOp(OpType op, std::shared_ptr<PropAst> arg)
-      : op(op), arg(std::move(arg)){};
+  UnaryOp(std::shared_ptr<PropAst> arg) : arg(std::move(arg)){};
+};
+
+struct AddOp : BinaryOp {
+  using BinaryOp::BinaryOp;
+};
+struct MulOp : BinaryOp {
+  using BinaryOp::BinaryOp;
+};
+struct ImpliesOp : BinaryOp {
+  using BinaryOp::BinaryOp;
+};
+struct LeOp : BinaryOp {
+  using BinaryOp::BinaryOp;
+};
+struct EqOp : BinaryOp {
+  using BinaryOp::BinaryOp;
+};
+
+struct LNotOp : UnaryOp {
+  using UnaryOp::UnaryOp;
+};
+
+/// \brief: A visitor class that calculates the polynomial degree of a property
+/// AST. We use this to check if the invariant is linear.
+///
+/// \example: Consider an invariant ast ((a * b) + (c * d * e) + 1) <= 5; by
+/// Creating an visitor CalculateDegreeVisitor visitor, visitor.visit(ast)
+/// returns 3.
+struct CalculateDegreeVisitor {
+  template <typename T>
+  unsigned operator()(T &&n) const {
+    // Since we pass n by reference, we need to remove the reference from the
+    // type. std::decay_t<T> does the job.
+    // https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2006/n2069.html
+    // https://stackoverflow.com/a/25732639
+    using BaseType = std::decay_t<T>;
+    if constexpr (std::is_same_v<BaseType, AddOp> ||
+                  std::is_same_v<BaseType, ImpliesOp> ||
+                  std::is_same_v<BaseType, LeOp> ||
+                  std::is_same_v<BaseType, EqOp>) {
+      return max(visit(n.lhs), visit(n.rhs));
+    } else if constexpr (std::is_same_v<BaseType, MulOp>) {
+      return visit(n.lhs) + visit(n.rhs);
+    } else if constexpr (std::is_same_v<BaseType, LNotOp>) {
+      return visit(n.arg);
+    } else if constexpr (std::is_same_v<BaseType, int>) {
+      return 0;
+    } else if constexpr (std::is_same_v<BaseType, RTLIL::IdString>) {
+      return 1;
+    } else {
+      assert(false && "This branch should not be reachable!");
+    }
+  }
+  unsigned visit(const std::shared_ptr<PropAst> &n) const {
+    // Remark for future visitors: this method complains if not all variant
+    // was implemented.
+    return std::visit(*this, *n);
+  }
+};
+
+/// \brief: A wrapper struct for dumping the AST as a string
+struct PrintVisitor {
+  std::string operator()(const int &n) const { return std::to_string(n); }
+  std::string operator()(const RTLIL::IdString &n) const { return log_id(n); }
+
+  std::string operator()(const AddOp &n) const {
+    std::stringstream ss;
+    ss << "(" << visit(n.lhs) << " + " << visit(n.rhs) << ")";
+    return ss.str();
+  }
+
+  std::string operator()(const MulOp &n) const {
+    std::stringstream ss;
+    ss << "(" << visit(n.lhs) << " * " << visit(n.rhs) << ")";
+    return ss.str();
+  }
+
+  std::string operator()(const ImpliesOp &n) const {
+    std::stringstream ss;
+    ss << "(" << visit(n.lhs) << " -> " << visit(n.rhs) << ")";
+    return ss.str();
+  }
+
+  std::string operator()(const LeOp &n) const {
+    std::stringstream ss;
+    ss << "(" << visit(n.lhs) << " <= " << visit(n.rhs) << ")";
+    return ss.str();
+  }
+
+  std::string operator()(const EqOp &n) const {
+    std::stringstream ss;
+    ss << "(" << visit(n.lhs) << " == " << visit(n.rhs) << ")";
+    return ss.str();
+  }
+
+  std::string operator()(const LNotOp &n) const {
+    return "(!" + visit(n.arg) + ")";
+  }
+
+  std::string visit(const std::shared_ptr<PropAst> &n) const {
+    // Remark for future visitors: this method complains if not all variant
+    // was implemented.
+    return std::visit(*this, *n);
+  }
 };
 
 /// \brief: A container class for adding various sanity checking on the AST
 struct Invariant {
   std::shared_ptr<PropAst> ast;
   Invariant(std::shared_ptr<PropAst> ast) : ast(std::move(ast)){};
-
-  /// \brief: A wrapper struct for dumping the AST as a string
-  struct PrintVisitor {
-    std::string operator()(const int &n) const { return std::to_string(n); }
-    std::string operator()(const RTLIL::IdString &n) const { return log_id(n); }
-    std::string operator()(const BinaryOp &n) const {
-      const std::map<BinaryOp::OpType, string> tyToStr = {
-          {BinaryOp::ADD, "+"}, {BinaryOp::MUL, "*"}, {BinaryOp::IMPLIES, "->"},
-          {BinaryOp::LE, "<="}, {BinaryOp::EQ, "=="},
-      };
-      assert(tyToStr.count(n.op) > 0 && "Unknown binary operator!");
-      std::stringstream ss;
-      ss << "(" << visit(n.lhs) << " " << tyToStr.at(n.op) << " "
-         << visit(n.rhs) << ")";
-      return ss.str();
-    }
-
-    std::string operator()(const UnaryOp &n) const {
-      const std::map<UnaryOp::OpType, string> tyToStr = {
-          {UnaryOp::LNOT, "!"},
-      };
-      assert(tyToStr.count(n.op) > 0 && "Unknown unary operator!");
-      return "(" + tyToStr.at(n.op) + visit(n.arg) + ")";
-    }
-
-    std::string visit(const std::shared_ptr<PropAst> &n) const {
-      // Remark for future visitors: this method complains if not all variant
-      // was implemented.
-      return std::visit(*this, *n);
-    }
-  };
-
-  struct CalculateDegreeVisitor {
-    unsigned operator()(int) const { return 0; }
-    unsigned operator()(const RTLIL::IdString &) const { return 1; }
-    unsigned operator()(const UnaryOp &n) const {
-      assert(n.op == UnaryOp::LNOT);
-      return visit(n.arg);
-    }
-    unsigned operator()(const BinaryOp &n) const {
-      if (n.op == BinaryOp::ADD || n.op == BinaryOp::LE ||
-          n.op == BinaryOp::EQ) {
-        return max(visit(n.lhs), visit(n.rhs));
-      }
-      if (n.op == BinaryOp::MUL) {
-        return visit(n.lhs) + visit(n.rhs);
-      }
-      assert(false && "Invalid operation type for calculating the degree");
-    }
-    unsigned visit(const std::shared_ptr<PropAst> &n) const {
-      // Remark for future visitors: this method complains if not all variant
-      // was implemented.
-      return std::visit(*this, *n);
-    }
-  };
 
   std::string toString() const {
     PrintVisitor visitor;

@@ -332,6 +332,11 @@ std::vector<Invariant> inferInvariants(RTLIL::Module *module,
   std::cerr << "[" << PROOF_ITERATIONS << "] " << config.getProofIteration()
             << "\n";
 
+  std::cerr << "[INFO] List of proven invariants";
+  for (const auto &inv : linearInvariants) {
+    std::cerr << "[INFO] invariant: " << inv.toString() << "\n";
+  }
+
   assert(modelCheckingResult.status == ModelCheckingResult::SAFE);
   return linearInvariants;
 }

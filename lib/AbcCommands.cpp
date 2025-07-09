@@ -47,8 +47,6 @@ void runrIC3PdrProof(const std::string &blifFileName,
   pAbc = Abc_FrameGetGlobalFrame();
   runAbcCommand(pAbc, "read_blif " + blifFileName);
   runAbcCommand(pAbc, "st");
-  runAbcCommand(pAbc, "dc2");
-  runAbcCommand(pAbc, "scorr");
   runAbcCommand(pAbc, "write_aiger /tmp/model.aig");
   Abc_Stop();
 

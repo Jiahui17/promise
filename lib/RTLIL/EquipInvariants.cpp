@@ -14,9 +14,7 @@ void zeroExtend(RTLIL::SigSpec &sig, int targetWidth) {
 }
 
 struct InstantiateInvariantVisitor {
-
   RTLIL::Module *module;
-
   SigSpec operator()(const int &n) const {
     assert(n >= 0 && "This method assumes that we do unsigned arithmetic.");
     return SigSpec(RTLIL::Const(n, ceil_log2(1 + n)));
@@ -27,59 +25,59 @@ struct InstantiateInvariantVisitor {
     return SigSpec(module->wire(n));
   }
 
-  SigSpec operator()(const UnaryOp &n) const {
+  SigSpec operator()(const LNotOp &n) const {
     auto arg = visit(n.arg);
-
     // Create the unary operator according to the type.
-    if (n.op == UnaryOp::LNOT) {
-      assert(arg.size() == 1 &&
-             "Attempting to instantiate a logical NOT on a word!");
-      RTLIL::Wire *output = module->addWire(NEW_ID, 1);
-      module->addNot(NEW_ID, arg, SigSpec(output));
-      return SigSpec(output);
-    }
-    assert(false && "Undefined operator type!");
+    assert(arg.size() == 1 &&
+           "Attempting to instantiate a logical NOT on a word!");
+    RTLIL::Wire *output = module->addWire(NEW_ID, 1);
+    module->addNot(NEW_ID, arg, SigSpec(output));
+    return SigSpec(output);
   }
 
-  SigSpec operator()(const BinaryOp &n) const {
-    auto lhs = visit(n.lhs);
-    auto rhs = visit(n.rhs);
+  SigSpec operator()(const AddOp &op) const {
+    auto lhs = visit(op.lhs);
+    auto rhs = visit(op.rhs);
+    unsigned width = max(lhs.size(), rhs.size());
+    zeroExtend(lhs, width);
+    zeroExtend(rhs, width);
+    RTLIL::Wire *output = module->addWire(NEW_ID, width + 1);
+    module->addAdd(NEW_ID, lhs, rhs, SigSpec(output));
+    return SigSpec(output);
+  }
 
-    if (n.op == BinaryOp::ADD) {
-      unsigned width = max(lhs.size(), rhs.size());
-      zeroExtend(lhs, width);
-      zeroExtend(rhs, width);
-      RTLIL::Wire *output = module->addWire(NEW_ID, width + 1);
-      module->addAdd(NEW_ID, lhs, rhs, SigSpec(output));
-      return SigSpec(output);
-    }
+  SigSpec operator()(const MulOp &op) const {
+    auto lhs = visit(op.lhs);
+    auto rhs = visit(op.rhs);
+    RTLIL::Wire *output = module->addWire(NEW_ID, lhs.size() + rhs.size());
+    module->addMul(NEW_ID, lhs, rhs, SigSpec(output));
+    return SigSpec(output);
+  }
 
-    if (n.op == BinaryOp::MUL) {
-      /// \TODO: Multiply by an one-bit number can be replaced by AND.
-      RTLIL::Wire *output = module->addWire(NEW_ID, lhs.size() + rhs.size());
-      module->addMul(NEW_ID, lhs, rhs, SigSpec(output));
-      return SigSpec(output);
-    }
+  SigSpec operator()(const ImpliesOp &op) const {
+    assert(false && "Not implemented!");
+  }
 
-    if (n.op == BinaryOp::LE) {
-      unsigned width = max(lhs.size(), rhs.size());
-      zeroExtend(lhs, width);
-      zeroExtend(rhs, width);
-      RTLIL::Wire *output = module->addWire(NEW_ID, 1);
-      module->addLe(NEW_ID, lhs, rhs, SigSpec(output));
-      return SigSpec(output);
-    }
+  SigSpec operator()(const LeOp &op) const {
+    auto lhs = visit(op.lhs);
+    auto rhs = visit(op.rhs);
+    unsigned width = max(lhs.size(), rhs.size());
+    zeroExtend(lhs, width);
+    zeroExtend(rhs, width);
+    RTLIL::Wire *output = module->addWire(NEW_ID, 1);
+    module->addLe(NEW_ID, lhs, rhs, SigSpec(output));
+    return SigSpec(output);
+  }
 
-    if (n.op == BinaryOp::EQ) {
-      unsigned width = max(lhs.size(), rhs.size());
-      zeroExtend(lhs, width);
-      zeroExtend(rhs, width);
-      RTLIL::Wire *output = module->addWire(NEW_ID, 1);
-      module->addEq(NEW_ID, lhs, rhs, SigSpec(output));
-      return SigSpec(output);
-    }
-
-    assert(false && "No implementation for operation type!");
+  SigSpec operator()(const EqOp &op) const {
+    auto lhs = visit(op.lhs);
+    auto rhs = visit(op.rhs);
+    unsigned width = max(lhs.size(), rhs.size());
+    zeroExtend(lhs, width);
+    zeroExtend(rhs, width);
+    RTLIL::Wire *output = module->addWire(NEW_ID, 1);
+    module->addEq(NEW_ID, lhs, rhs, SigSpec(output));
+    return SigSpec(output);
   }
 
   SigSpec visit(const std::shared_ptr<PropAst> &n) const {

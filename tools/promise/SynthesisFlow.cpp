@@ -322,6 +322,12 @@ bool synthesisFlow(SynthesisFlowConfig config, RTLIL::Design *design,
   }
 
   assert(modelCheckingResult.status == ModelCheckingResult::SAFE);
+
+  std::cerr << "[INFO] List of proven invariants";
+  for (const auto &inv : linearInvariants) {
+    std::cerr << "[INFO] invariant: " << inv.toString() << "\n";
+  }
+
   applyScorrOptimization(config, m, linearInvariants);
 
   applyEncodingOptimization(config, m, linearInvariants);

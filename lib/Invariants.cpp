@@ -29,6 +29,7 @@ using Vertex_size_t = boost::graph_traits<Graph>::vertices_size_type;
 using vertex_index_map =
     boost::property_map<Graph, boost::vertex_index_t>::const_type;
 
+
 std::vector<Invariant>
 inferLinearEqualities(RTLIL::Module *module, const Eigen::MatrixXi &matrix,
                       const std::vector<RTLIL::IdString> &signals) {
@@ -48,7 +49,7 @@ inferLinearEqualities(RTLIL::Module *module, const Eigen::MatrixXi &matrix,
     auto varAst = mkAst(id);
     if (coeff > 1) {
       auto coeffAst = mkAst(coeff);
-      return mkAst(BinaryOp(BinaryOp::MUL, coeffAst, varAst));
+      return mkAst(MulOp(coeffAst, varAst));
     }
     return varAst;
   };
@@ -60,7 +61,7 @@ inferLinearEqualities(RTLIL::Module *module, const Eigen::MatrixXi &matrix,
     }
     ast = terms[0];
     for (size_t j = 1; j < terms.size(); ++j) {
-      ast = mkAst(BinaryOp(BinaryOp::ADD, ast, terms[j]));
+      ast = mkAst(AddOp(ast, terms[j]));
     }
     return ast;
   };
@@ -88,7 +89,7 @@ inferLinearEqualities(RTLIL::Module *module, const Eigen::MatrixXi &matrix,
     auto lhsAst = sumTerms(lhsTerms);
     auto rhsAst = sumTerms(rhsTerms);
 
-    properties.emplace_back(mkAst(BinaryOp(BinaryOp::EQ, lhsAst, rhsAst)));
+    properties.emplace_back(mkAst(EqOp(lhsAst, rhsAst)));
   }
 
   return properties;
@@ -215,7 +216,7 @@ std::vector<Invariant> inferLinearInequalitiesViaConflictGraph(
   auto makeTerm = [](bool isNegated, RTLIL::IdString id) {
     auto varAst = mkAst(id);
     if (isNegated) {
-      return mkAst(UnaryOp(UnaryOp::LNOT, varAst));
+      return mkAst(LNotOp(varAst));
     }
     return varAst;
   };
@@ -227,7 +228,7 @@ std::vector<Invariant> inferLinearInequalitiesViaConflictGraph(
     }
     ast = terms[0];
     for (size_t j = 1; j < terms.size(); ++j) {
-      ast = mkAst(BinaryOp(BinaryOp::ADD, ast, terms[j]));
+      ast = mkAst(AddOp(ast, terms[j]));
     }
     return ast;
   };
@@ -248,7 +249,7 @@ std::vector<Invariant> inferLinearInequalitiesViaConflictGraph(
         auto [wire, isNegated] = sigNameWithIsNegated[id];
         terms.push_back(makeTerm(isNegated, wire));
       }
-      auto invAst = mkAst(BinaryOp(BinaryOp::LE, sumTerms(terms), mkAst(1)));
+      auto invAst = mkAst(LeOp(sumTerms(terms), mkAst(1)));
       properties.emplace_back(invAst);
     }
   }
