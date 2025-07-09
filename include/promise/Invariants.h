@@ -49,7 +49,6 @@ Overloaded(Ts...) -> Overloaded<Ts...>;
 struct BinaryOp {
   std::shared_ptr<PropAst> lhs;
   std::shared_ptr<PropAst> rhs;
-
   BinaryOp(std::shared_ptr<PropAst> lhs, std::shared_ptr<PropAst> rhs)
       : lhs(std::move(lhs)), rhs(std::move(rhs)){};
 };
@@ -93,7 +92,10 @@ struct CalculateDegreeVisitor {
   template <typename T>
   unsigned operator()(T &&n) const {
     // Since we pass n by reference, we need to remove the reference from the
-    // type. std::decay_t<T> does the job.
+    // type (otherwise, the type will be a reference to the type that we want).
+    // std::decay_t<T> does the job.
+    //
+    // Some other examples:
     // https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2006/n2069.html
     // https://stackoverflow.com/a/25732639
     using BaseType = std::decay_t<T>;
@@ -177,7 +179,7 @@ struct Invariant {
     return visitor.visit(ast);
   }
 
-  // Sanity checks
+  /// \brief: Returns true if the invariant described by the ast is linear.
   bool isLinearInvariant() const {
     auto visitor = CalculateDegreeVisitor();
     return visitor.visit(ast) <= 1;

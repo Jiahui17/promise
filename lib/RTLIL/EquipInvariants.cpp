@@ -4,6 +4,7 @@
 #include "promise/Invariants.h"
 #include <csignal>
 #include <stdexcept>
+#include <utility>
 
 void zeroExtend(RTLIL::SigSpec &sig, int targetWidth) {
   int currentWidth = GetSize(sig);
@@ -13,89 +14,101 @@ void zeroExtend(RTLIL::SigSpec &sig, int targetWidth) {
   sig.append(RTLIL::SigSpec(RTLIL::State::S0, targetWidth - currentWidth));
 }
 
+/// \brief: This class instruments a given RTLIL module with the invariant
+/// described in AST. It recursively traverses the AST and builds operation from
+/// the AST node. The returned SigSpec construct will be picked up by the parent
+/// calls to generate operations.
+
 struct InstantiateInvariantVisitor {
   RTLIL::Module *module;
-  SigSpec operator()(const int &n) const {
+
+  using SigSpecAndMaxValType = std::pair<SigSpec, unsigned>;
+
+  SigSpecAndMaxValType operator()(const int &n) const {
     assert(n >= 0 && "This method assumes that we do unsigned arithmetic.");
-    return SigSpec(RTLIL::Const(n, ceil_log2(1 + n)));
+    return std::make_pair(SigSpec(RTLIL::Const(n, ceil_log2(1 + n))), n);
   };
 
-  SigSpec operator()(const RTLIL::IdString &n) const {
-    assert(module->wire(n) && "n is not a wire in the module!");
-    return SigSpec(module->wire(n));
+  SigSpecAndMaxValType operator()(const RTLIL::IdString &n) const {
+    auto *w = module->wire(n);
+    assert(w && "n is not a wire in the module!");
+    return std::make_pair(SigSpec(w), (1 << w->width) - 1);
   }
 
-  SigSpec operator()(const LNotOp &n) const {
-    auto arg = visit(n.arg);
+  SigSpecAndMaxValType operator()(const LNotOp &n) const {
+    auto [arg, _] = visit(n.arg);
     // Create the unary operator according to the type.
     assert(arg.size() == 1 &&
            "Attempting to instantiate a logical NOT on a word!");
-    RTLIL::Wire *output = module->addWire(NEW_ID, 1);
-    module->addNot(NEW_ID, arg, SigSpec(output));
-    return SigSpec(output);
+    RTLIL::Wire *out = module->addWire(NEW_ID, 1);
+    module->addNot(NEW_ID, arg, SigSpec(out));
+    return std::make_pair(SigSpec(out), 1);
   }
 
-  SigSpec operator()(const AddOp &op) const {
-    auto lhs = visit(op.lhs);
-    auto rhs = visit(op.rhs);
+  SigSpecAndMaxValType operator()(const AddOp &op) const {
+    auto [lhs, lMaxVal] = visit(op.lhs);
+    auto [rhs, rMaxVal] = visit(op.rhs);
     unsigned width = max(lhs.size(), rhs.size());
     zeroExtend(lhs, width);
     zeroExtend(rhs, width);
-    RTLIL::Wire *output = module->addWire(NEW_ID, width + 1);
-    module->addAdd(NEW_ID, lhs, rhs, SigSpec(output));
-    return SigSpec(output);
+    RTLIL::Wire *out =
+        module->addWire(NEW_ID, ceil_log2(1 + lMaxVal + rMaxVal));
+    module->addAdd(NEW_ID, lhs, rhs, SigSpec(out));
+    return std::make_pair(SigSpec(out), lMaxVal + rMaxVal);
   }
 
-  SigSpec operator()(const MulOp &op) const {
-    auto lhs = visit(op.lhs);
-    auto rhs = visit(op.rhs);
-    RTLIL::Wire *output = module->addWire(NEW_ID, lhs.size() + rhs.size());
-    module->addMul(NEW_ID, lhs, rhs, SigSpec(output));
-    return SigSpec(output);
+  SigSpecAndMaxValType operator()(const MulOp &op) const {
+    auto [lhs, lMaxVal] = visit(op.lhs);
+    auto [rhs, rMaxVal] = visit(op.rhs);
+    RTLIL::Wire *out =
+        module->addWire(NEW_ID, ceil_log2(1 + lMaxVal * rMaxVal));
+    module->addMul(NEW_ID, lhs, rhs, SigSpec(out));
+    return std::make_pair(SigSpec(out), lMaxVal * rMaxVal);
   }
 
-  SigSpec operator()(const ImpliesOp &op) const {
+  SigSpecAndMaxValType operator()(const ImpliesOp &) const {
     assert(false && "Not implemented!");
   }
 
-  SigSpec operator()(const LeOp &op) const {
-    auto lhs = visit(op.lhs);
-    auto rhs = visit(op.rhs);
+  SigSpecAndMaxValType operator()(const LeOp &op) const {
+    auto [lhs, lMaxVal] = visit(op.lhs);
+    auto [rhs, rMaxVal] = visit(op.rhs);
     unsigned width = max(lhs.size(), rhs.size());
     zeroExtend(lhs, width);
     zeroExtend(rhs, width);
-    RTLIL::Wire *output = module->addWire(NEW_ID, 1);
-    module->addLe(NEW_ID, lhs, rhs, SigSpec(output));
-    return SigSpec(output);
+    RTLIL::Wire *out = module->addWire(NEW_ID, 1);
+    module->addLe(NEW_ID, lhs, rhs, SigSpec(out));
+    return std::make_pair(SigSpec(out), 1);
   }
 
-  SigSpec operator()(const EqOp &op) const {
-    auto lhs = visit(op.lhs);
-    auto rhs = visit(op.rhs);
+  SigSpecAndMaxValType operator()(const EqOp &op) const {
+    auto [lhs, lMaxVal] = visit(op.lhs);
+    auto [rhs, rMaxVal] = visit(op.rhs);
     unsigned width = max(lhs.size(), rhs.size());
     zeroExtend(lhs, width);
     zeroExtend(rhs, width);
-    RTLIL::Wire *output = module->addWire(NEW_ID, 1);
-    module->addEq(NEW_ID, lhs, rhs, SigSpec(output));
-    return SigSpec(output);
+    RTLIL::Wire *out = module->addWire(NEW_ID, 1);
+    module->addEq(NEW_ID, lhs, rhs, SigSpec(out));
+    return std::make_pair(SigSpec(out), 1);
   }
 
-  SigSpec visit(const std::shared_ptr<PropAst> &n) const {
-    // Remark for future visitors: this method complains if not all variant was
-    // implemented.
+  SigSpecAndMaxValType visit(const std::shared_ptr<PropAst> &n) const {
+    // Remark for future visitors: the c++ compiler complains if the visitor
+    // struct has not implemented "operator()" for all types in the variant.
     return std::visit(*this, *n);
   }
 };
 
-// Instrument the module with a linear invariant, and return the pin
-//
-// Convention: output = 1 means good, output = 0 mean bad (opposite from ABC
-// convention, but more intuitive).
+/// \brief: This function instruments the module with a linear invariant, and
+/// returns a SigSpec of the created output pin.
+///
+/// \note: Convention: output = 1 means good, output = 0 mean bad (opposite from
+/// ABC convention, but more intuitive).
 SigSpec instrumentSingleInvariant(RTLIL::Module *m, const Invariant &inv,
                                   const std::string &name) {
 
   InstantiateInvariantVisitor visitor{m};
-  auto invLogicOutput = visitor.visit(inv.ast);
+  auto [invLogicOutput, _] = visitor.visit(inv.ast);
   m->rename(invLogicOutput.as_wire(), RTLIL::escape_id(name));
   return invLogicOutput;
 }
