@@ -18,6 +18,8 @@
 #include "promise/StringUtils.h"
 #include "promise/Timer.h"
 
+#include <boost/filesystem.hpp>
+
 void runAbcPdrProof(const std::string &filename,
                     const std::string &logFileName) {
   Abc_Start();
@@ -28,8 +30,6 @@ void runAbcPdrProof(const std::string &filename,
 
   runAbcCommand(pAbc, "read_blif " + filename);
   runAbcCommand(pAbc, "st");
-  runAbcCommand(pAbc, "dc2");
-  runAbcCommand(pAbc, "scorr");
 
   {
     Timer t("pdr");
@@ -47,12 +47,17 @@ void runrIC3PdrProof(const std::string &blifFileName,
   pAbc = Abc_FrameGetGlobalFrame();
   runAbcCommand(pAbc, "read_blif " + blifFileName);
   runAbcCommand(pAbc, "st");
-  runAbcCommand(pAbc, "write_aiger /tmp/model.aig");
+
+  // Create an unique temporary AIG file
+  auto aigModelName = boost::filesystem::unique_path("/tmp/model-%%%%%%.aig");
+
+  runAbcCommand(pAbc, "write_aiger " + aigModelName.string());
+
   Abc_Stop();
 
   std::stringstream cmd;
   cmd << std::filesystem::path(PROMISE_BINARIES_DIR) / "rIC3"
-      << " -e ic3 --witness /tmp/model.aig";
+      << " -e ic3 --witness " << aigModelName;
   auto [retCode, output] = shell(cmd.str());
 
   if (retCode != 10 && retCode != 20) {
@@ -65,6 +70,8 @@ void runrIC3PdrProof(const std::string &blifFileName,
   }
 
   f << output;
+
+  boost::filesystem::remove(aigModelName);
 }
 
 void runAbcCombOptimization(const std::string &filename,

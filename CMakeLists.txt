@@ -60,6 +60,7 @@ function(add_promise_binary binary_name)
         ${ABC_LIB}
         Eigen3::Eigen
         Boost::json
+        Boost::filesystem
     )
     target_compile_options(${binary_name}
         PRIVATE 
