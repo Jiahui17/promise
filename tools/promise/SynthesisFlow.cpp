@@ -7,9 +7,9 @@
 #include "promise/RTLIL/EquipInvariants.h"
 #include "promise/RTLIL/RTLILUtils.h"
 #include "promise/ShellUtils.h"
+#include "promise/Simulation/VcdParser.h"
+#include "promise/Simulation/VerilatorUtils.h"
 #include "promise/Timer.h"
-#include "promise/VcdParser.h"
-#include "promise/VerilatorUtils.h"
 
 #include "kernel/rtlil.h"
 #include "kernel/yosys.h"
@@ -216,17 +216,6 @@ bool synthesisFlow(SynthesisFlowConfig config, RTLIL::Design *design,
 
   run_pass("clean", design);
 
-  for (auto *cell : m->cells().to_vector()) {
-    for (auto [portIdentifier, sigSpec] : cell->connections()) {
-
-      if (sigSpec.is_wire()) {
-        std::cerr << "Cell " << log_id(cell->name) << " Type "
-                  << log_id(cell->type) << " Port " << log_id(portIdentifier)
-                  << " Wire " << log_id(sigSpec.as_wire()->name) << "\n";
-      }
-    }
-  }
-
   applyCombinationalOptimization(config, m);
 
   auto regOuts = getRegOutputs(m);
@@ -323,7 +312,7 @@ bool synthesisFlow(SynthesisFlowConfig config, RTLIL::Design *design,
 
   assert(modelCheckingResult.status == ModelCheckingResult::SAFE);
 
-  std::cerr << "[INFO] List of proven invariants";
+  std::cerr << "[INFO] List of proven invariants:\n";
   for (const auto &inv : linearInvariants) {
     std::cerr << "[INFO] invariant: " << inv.toString() << "\n";
   }

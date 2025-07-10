@@ -24,10 +24,10 @@
 
 // Promise headers
 #include "promise/Invariants.h"
+#include "promise/Simulation/VcdParser.h"
+#include "promise/Simulation/VerilatorUtils.h"
 #include "promise/StringUtils.h"
 #include "promise/Timer.h"
-#include "promise/VcdParser.h"
-#include "promise/VerilatorUtils.h"
 
 // Experiment header
 #include "Iccad25Experiment.h"

@@ -31,10 +31,10 @@
 #include "promise/RTLIL/EncodingOptimization.h"
 #include "promise/RTLIL/EquipInvariants.h"
 #include "promise/ShellUtils.h"
+#include "promise/Simulation/VcdParser.h"
+#include "promise/Simulation/VerilatorUtils.h"
 #include "promise/StringUtils.h"
 #include "promise/Timer.h"
-#include "promise/VcdParser.h"
-#include "promise/VerilatorUtils.h"
 USING_YOSYS_NAMESPACE
 
 // Names of the fields in the log files

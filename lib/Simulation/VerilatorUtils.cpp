@@ -5,8 +5,8 @@
 #include "promise/ModelCheckingResult.h"
 #include "promise/RTLIL/RTLILUtils.h"
 #include "promise/ShellUtils.h"
+#include "promise/Simulation/VerilatorUtils.h"
 #include "promise/StringUtils.h"
-#include "promise/VerilatorUtils.h"
 
 #include "kernel/log.h"
 #include "kernel/rtlil.h"

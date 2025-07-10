@@ -6,8 +6,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include "promise/Simulation/VcdParser.h"
 #include "promise/StringUtils.h"
-#include "promise/VcdParser.h"
 
 #include <Eigen/Dense>
 #include <Eigen/src/Core/ArithmeticSequence.h>

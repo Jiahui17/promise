@@ -29,5 +29,6 @@
   },
   "cmake.generator": "Ninja",
   "cmake.buildArgs": ["-v"], 
-  "cmake.verboseOutput": true
+  "cmake.verboseOutput": true,
+  "cmake.ctestArgs": ["--output-on-failure"]
 }

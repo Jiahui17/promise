@@ -24,9 +24,9 @@
 
 // Promise headers
 #include "SynthesisFlow.h"
+#include "promise/Simulation/VerilatorUtils.h"
 #include "promise/StringUtils.h"
 #include "promise/Timer.h"
-#include "promise/VerilatorUtils.h"
 
 namespace fs = std::filesystem;
 
