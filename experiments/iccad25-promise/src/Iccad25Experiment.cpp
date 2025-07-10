@@ -26,6 +26,7 @@
 #include "promise/Invariants.h"
 #include "promise/RTLIL/EncodingOptimization.h"
 #include "promise/RTLIL/EquipInvariants.h"
+#include "promise/RTLIL/RTLILUtils.h"
 #include "promise/ShellUtils.h"
 #include "promise/StringUtils.h"
 #include "promise/Timer.h"
@@ -33,27 +34,6 @@
 #include "Iccad25Experiment.h"
 
 USING_YOSYS_NAMESPACE
-std::vector<Wire *> getRegOutputs(RTLIL::Module *m) {
-  // The logic below attempts to get all bits driven by the Q output of a clock
-  // std::set<RTLIL::SigBit> clockedBits;
-  std::vector<RTLIL::Wire *> regOuts;
-  for (auto *cell : m->cells()) {
-    // TODO: filter more unhandled FF types
-    assert(!cell->type.in("$dff") && "Unhandled cell type that is a FF");
-    if (cell->type.in("$_DFF_P_")) {
-      log("  Found DFF-type cell: %s of type %s\n", log_id(cell),
-          log_id(cell->type));
-
-      // FF output
-      auto q = cell->getPort("\\Q");
-      std::set<RTLIL::SigBit> outputset = q.to_sigbit_set();
-      for (auto b : q.to_sigbit_set()) {
-        regOuts.push_back(b.wire);
-      }
-    }
-  }
-  return regOuts;
-}
 
 // Compressing the unique rows from a vector of matrices into one matrix
 Eigen::MatrixXi getUniqueRows(const vector<Eigen::MatrixXi> &matrices) {

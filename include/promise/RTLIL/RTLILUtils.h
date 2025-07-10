@@ -1,7 +1,38 @@
+#pragma once
 #include "kernel/rtlil.h"
 #include "kernel/yosys_common.h"
+#include <cassert>
 
 USING_YOSYS_NAMESPACE
+
+/// \brief: Given an RTLIL module, this function returns the all the output
+/// wires of registers.
+///
+/// \note: It only deals with simple "$_DFF_P_" registers
+///
+/// \note: Maybe it is better to return vector<IdString> instead of Wire* to be
+/// portable across duplicated designs?
+inline std::vector<Wire *> getRegOutputs(RTLIL::Module *m) {
+  // The logic below attempts to get all bits driven by the Q output of a clock
+  // std::set<RTLIL::SigBit> clockedBits;
+  std::vector<RTLIL::Wire *> regOuts;
+  for (auto *cell : m->cells()) {
+    // TODO: filter more unhandled FF types
+    assert(!cell->type.in("$dff") && "Unhandled cell type that is a FF");
+    if (cell->type.in("$_DFF_P_")) {
+      log("  Found DFF-type cell: %s of type %s\n", log_id(cell),
+          log_id(cell->type));
+
+      // FF output
+      auto q = cell->getPort("\\Q");
+      std::set<RTLIL::SigBit> outputset = q.to_sigbit_set();
+      for (auto b : q.to_sigbit_set()) {
+        regOuts.push_back(b.wire);
+      }
+    }
+  }
+  return regOuts;
+}
 
 // This returns the "Cell *" that has an output that drives the Wire * w
 // [Quirk in Yosys]: Somehow in a cloned design, the "driverCell_" is not

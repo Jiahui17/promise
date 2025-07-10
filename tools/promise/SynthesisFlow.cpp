@@ -19,28 +19,6 @@
 #include <iostream>
 #include <tuple>
 
-std::vector<Wire *> getRegOutputs(RTLIL::Module *m) {
-  // The logic below attempts to get all bits driven by the Q output of a clock
-  // std::set<RTLIL::SigBit> clockedBits;
-  std::vector<RTLIL::Wire *> regOuts;
-  for (auto *cell : m->cells()) {
-    // TODO: filter more unhandled FF types
-    assert(!cell->type.in("$dff") && "Unhandled cell type that is a FF");
-    if (cell->type.in("$_DFF_P_")) {
-      log("  Found DFF-type cell: %s of type %s\n", log_id(cell),
-          log_id(cell->type));
-
-      // FF output
-      auto q = cell->getPort("\\Q");
-      std::set<RTLIL::SigBit> outputset = q.to_sigbit_set();
-      for (auto b : q.to_sigbit_set()) {
-        regOuts.push_back(b.wire);
-      }
-    }
-  }
-  return regOuts;
-}
-
 // Compressing the unique rows from a vector of matrices into one matrix
 Eigen::MatrixXi getUniqueRows(const vector<Eigen::MatrixXi> &matrices) {
 
@@ -117,8 +95,7 @@ ModelCheckingResult verifyInvariant(const SynthesisFlowConfig &config,
   return result;
 }
 
-void applyCombinationalOptimization(const SynthesisFlowConfig &config,
-                                    RTLIL::Module *m) {
+void flowComb(const SynthesisFlowConfig &config, RTLIL::Module *m) {
   RTLIL::Design *design = new RTLIL::Design;
 
   // Clone the design
@@ -137,8 +114,8 @@ void applyCombinationalOptimization(const SynthesisFlowConfig &config,
 
 // Assuming that the conjunction of the invariants is proven, use scorr in ABC
 // with invariants to optimize the design
-void applyScorrOptimization(const SynthesisFlowConfig &config, RTLIL::Module *m,
-                            const std::vector<Invariant> &invariants) {
+void flowScorrInvar(const SynthesisFlowConfig &config, RTLIL::Module *m,
+                    const std::vector<Invariant> &invariants) {
 
   RTLIL::Design *design = new RTLIL::Design;
 
@@ -178,9 +155,8 @@ void applyScorrOptimization(const SynthesisFlowConfig &config, RTLIL::Module *m,
                           /* withInvariants */ true, numPOBits);
 }
 
-void applyEncodingOptimization(const SynthesisFlowConfig &config,
-                               RTLIL::Module *m,
-                               const std::vector<Invariant> &invariants) {
+void flowEncoding(const SynthesisFlowConfig &config, RTLIL::Module *m,
+                  const std::vector<Invariant> &invariants) {
   RTLIL::Design *design = new RTLIL::Design;
 
   // Clone the design
@@ -208,31 +184,11 @@ void applyEncodingOptimization(const SynthesisFlowConfig &config,
   runSequentialEquivalenceChecking(originalBlif, outputBlif, 3600);
 }
 
-// This is the "suggest" and "guarnatee" step
-bool synthesisFlow(SynthesisFlowConfig config, RTLIL::Design *design,
-                   const std::string &topName) {
-
-  RTLIL::Module *m = design->module(RTLIL::escape_id(topName));
-
-  run_pass("clean", design);
-
-  applyCombinationalOptimization(config, m);
-
-  auto regOuts = getRegOutputs(m);
-
-  // [STEP]: retrieve single-bit register output signals.
-  std::vector<RTLIL::IdString> singleBitRegOuts;
-  for (auto *sig : regOuts) {
-    if (sig->width == 1) {
-      singleBitRegOuts.push_back(sig->name);
-    }
-  }
-
-  // Flattened verilog design: after removing procs and mapping all FFs to
-  // simple FFs
-  auto flattenedVerilog = config.getOutputDir() / VERILOG_FLATTENED;
-  run_pass("write_verilog " + flattenedVerilog.string(), design);
-
+Eigen::MatrixXi
+runRandomSimulation(RTLIL::Module *m, const std::string &topName,
+                    SynthesisFlowConfig &config,
+                    const std::filesystem::path &flattenedVerilog,
+                    const std::vector<RTLIL::IdString> &signalList) {
   // [STEP]: Simulate the design:
   std::vector<Eigen::MatrixXi> simData;
   for (unsigned i = 0; i < 4; i++, config.newSimIteration()) {
@@ -253,20 +209,23 @@ bool synthesisFlow(SynthesisFlowConfig config, RTLIL::Design *design,
     simCmd << (verilatorSimObjDir / ("V" + topName));
     shell(simCmd.str());
 
-    Eigen::MatrixXi signalMatrix =
-        vcdToSignalMatrix(m, vcdFile, singleBitRegOuts);
+    Eigen::MatrixXi signalMatrix = vcdToSignalMatrix(m, vcdFile, signalList);
     simData.push_back(signalMatrix);
   }
 
-  auto signalMatrix = getUniqueRows(simData);
+  return getUniqueRows(simData);
+}
 
+std::vector<Invariant> inferLinearInvariantsFromSimulation(
+    RTLIL::Module *m, SynthesisFlowConfig &config, Eigen::MatrixXi signalMatrix,
+    const std::vector<RTLIL::IdString> &signalList,
+    const std::filesystem::path &flattenedVerilog, const std::string &topName) {
   // [STEP]: Suggest invariants from the signalMatrix:
   std::vector<Invariant> linearInvariants =
-      inferLinearEqualities(m, signalMatrix, singleBitRegOuts);
+      inferLinearEqualities(m, signalMatrix, signalList);
 
   std::vector<Invariant> linearInequalities =
-      inferLinearInequalitiesViaConflictGraph(m, signalMatrix,
-                                              singleBitRegOuts);
+      inferLinearInequalitiesViaConflictGraph(m, signalMatrix, signalList);
 
   std::copy(linearInequalities.begin(), linearInequalities.end(),
             std::back_inserter(linearInvariants));
@@ -295,13 +254,13 @@ bool synthesisFlow(SynthesisFlowConfig config, RTLIL::Design *design,
     shell(simCmd.str());
 
     // Retrieve the signal matrix from CEX
-    auto cexMatrix = vcdToSignalMatrix(m, vcdFile, singleBitRegOuts);
+    auto cexMatrix = vcdToSignalMatrix(m, vcdFile, signalList);
     signalMatrix = getUniqueRows({signalMatrix, cexMatrix});
 
     // [STEP]: Suggest invariants from the signalMatrix:
-    linearInvariants = inferLinearEqualities(m, signalMatrix, singleBitRegOuts);
-    linearInequalities = inferLinearInequalitiesViaConflictGraph(
-        m, signalMatrix, singleBitRegOuts);
+    linearInvariants = inferLinearEqualities(m, signalMatrix, signalList);
+    linearInequalities =
+        inferLinearInequalitiesViaConflictGraph(m, signalMatrix, signalList);
     std::copy(linearInequalities.begin(), linearInequalities.end(),
               std::back_inserter(linearInvariants));
 
@@ -309,16 +268,47 @@ bool synthesisFlow(SynthesisFlowConfig config, RTLIL::Design *design,
 
     config.newProofIteration();
   }
-
   assert(modelCheckingResult.status == ModelCheckingResult::SAFE);
+
+  return linearInvariants;
+}
+
+// This is the "suggest" and "guarnatee" step
+bool synthesisFlow(SynthesisFlowConfig config, RTLIL::Design *design,
+                   const std::string &topName) {
+
+  RTLIL::Module *m = design->module(RTLIL::escape_id(topName));
+
+  run_pass("clean", design);
+
+  flowComb(config, m);
+
+  auto regOuts = getRegOutputs(m);
+
+  // [STEP]: retrieve single-bit register output signals.
+  std::vector<RTLIL::IdString> singleBitRegOuts;
+  for (auto *sig : regOuts) {
+    if (sig->width == 1) {
+      singleBitRegOuts.push_back(sig->name);
+    }
+  }
+
+  auto flattenedVerilog = config.getOutputDir() / VERILOG_FLATTENED;
+  run_pass("write_verilog " + flattenedVerilog.string(), design);
+
+  auto signalMatrix = runRandomSimulation(m, topName, config, flattenedVerilog,
+                                          singleBitRegOuts);
+
+  auto linearInvariants = inferLinearInvariantsFromSimulation(
+      m, config, signalMatrix, singleBitRegOuts, flattenedVerilog, topName);
 
   std::cerr << "[INFO] List of proven invariants:\n";
   for (const auto &inv : linearInvariants) {
     std::cerr << "[INFO] invariant: " << inv.toString() << "\n";
   }
 
-  applyScorrOptimization(config, m, linearInvariants);
+  flowScorrInvar(config, m, linearInvariants);
 
-  applyEncodingOptimization(config, m, linearInvariants);
+  flowEncoding(config, m, linearInvariants);
   return true;
 }
