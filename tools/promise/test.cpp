@@ -70,7 +70,7 @@ int main(int argc, char *argv[]) {
 
   SynthesisFlowConfig config(3600, "output");
 
-  synthFlowSingleOutputReg(config, design, topName);
+  synthFlowBSC(config, design, topName);
 
   delete design;
   yosys_shutdown();

@@ -67,5 +67,8 @@ public:
   void newSimIteration() { simIteration += 1; }
 };
 
-bool synthesisFlow(SynthesisFlowConfig config, RTLIL::Design *design,
-                   const std::string &topName);
+bool synthFlowSingleOutputReg(SynthesisFlowConfig config, RTLIL::Design *design,
+                              const std::string &topName);
+
+bool synthFlowBSC(SynthesisFlowConfig config, RTLIL::Design *design,
+                  const std::string &topName);
