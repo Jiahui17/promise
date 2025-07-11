@@ -16,7 +16,11 @@ void dispatchLine(
     std::map<RTLIL::IdString, std::vector<uint32_t>> &sigToValueMap) {
 
   unsigned pos = 0;
+
   for (auto *wire : wires) {
+    assert(
+        wire->width <= 32 &&
+        "Wire with more than 32 bits is not yet properly handled in promise!");
     auto substrWire = line.substr(pos, wire->width);
     // Yosys dump input the blif in increasing indices, e.g.,
     // arr[0] arr[1] arr[2] ...

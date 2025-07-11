@@ -77,6 +77,9 @@ void createRandomTestBench(const std::filesystem::path &pathToVerilatorTb,
   os << "  top->" << rst << " = 0;\n";
   os << "  for (size_t i = 1; i < " << 2 * simCycles << "; ++i) {\n";
   os << "    top->" << clk << " = !top->" << clk << ";\n";
+  /// IMPORTANT: in verilator, the deltas happen together with the clock edge
+  /// will not captured by risedge(clk). Therefore, if the FFs are triggered by
+  /// rising edge, we need to update the values at the falling edge.
   os << "    // Update signal on the negedge\n";
   os << "    if (!top->" << clk << "){\n";
   for (auto *inputSig : module->wires()) {
@@ -145,33 +148,39 @@ void createCexTestBench(const std::filesystem::path &pathToVerilatorTb,
   os << "  tfp->open(\"" << vcdFileName << "\");\n";
   os << "  std::srand(std::time(nullptr));\n";
   // os << "  top->" << rst << " = 1;\n";
-  os << "  top->" << clk << " = 0;\n";
+  os << "  top->" << clk << " = 1;\n";
   os << "  top->eval();\n";
-  os << "  // Dumping the initial state (state 0)\n";
   os << "  tfp->dump(0);\n";
 
   assert(cex.numCexStates > 0);
 
-  for (unsigned i = 0; i < cex.numCexStates; ++i) {
-    os << "  // Cex of state " << i + 1 << "\n";
+  for (unsigned i = 0; i < cex.numCexStates; i += 1) {
+    os << "  // <===== Cex of state =====>" << i << "\n";
+    os << "  // Falling clock edge:\n";
+    /// IMPORTANT: in verilator, the deltas happen together with the clock edges
+    /// will not captured by posedge(clk). Therefore, if the FFs are triggered
+    /// by posedge edge, we need to update the values at the falling edge.
     os << "  top->" << clk << " = !top->" << clk << ";\n";
     for (const auto &inputSig : inputWires) {
       assert(inputSig->port_input);
       if (log_id(inputSig) != clk) {
-        size_t mask = (1 << inputSig->width) - 1;
+        assert(i < cex.inputValues.at(inputSig->name).size());
+        long long mask = ((long long)1 << inputSig->width) - 1;
+        os << "  // decimal of width: " << inputSig->width << "\n";
+        os << "  // decimal of mask: " << mask << "\n";
         os << "  top->" << log_id(inputSig) << " = "
            << cex.inputValues.at(inputSig->name)[i] << " & 0x" << std::hex
            << mask << ";\n"
            << std::dec;
       }
     }
-    // Evaluate the rising clock edge
     os << "  top->eval();\n";
-    os << "  // Dumping state " << i + 1 << "\n";
-    os << "  tfp->dump(" << i + 1 << ");\n";
+    os << "  // Dumping state " << i << "\n";
+    os << "  tfp->dump(" << 2 * i + 1 << ");\n";
+    os << "  // Rising clock edge:\n";
     os << "  top->" << clk << " = !top->" << clk << ";\n";
-    // Evaluate the falling clock edge
     os << "  top->eval();\n";
+    os << "  tfp->dump(" << 2 * i + 2 << ");\n";
   }
   os << "  tfp->close();\n";
   os << "  delete top;\n";
@@ -217,6 +226,7 @@ void buildVerilatorModel(const std::filesystem::path &objDir,
   // Some internal signals in xls might begin with an underscore.
   // NOTE: be aware that we also need `--coverage-underscore` at some point
   verilatorCmd << " --trace-underscore";
+  verilatorCmd << " --Wno-UNOPTFLAT";
   verilatorCmd << " --top-module " << topName;
   auto [code, stdout] = shell(verilatorCmd.str());
 
