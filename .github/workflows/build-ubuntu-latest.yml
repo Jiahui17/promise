@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-format:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get install -y \
+            build-essential git libgtest-dev \
+            libeigen3-dev ninja-build cmake libboost-dev \
+            lld bison flex libreadline-dev gawk tcl-dev libffi-dev \
+            graphviz xdot pkg-config python3 zlib1g-dev \
+            help2man perl make curl python3-venv python3-pip autoconf
+
+      - name: Build promise
+        run: |
+          bash build.sh
+
+      - name: Check promise
+        run: |
+          cd build
+          ninja test
+
