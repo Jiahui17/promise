@@ -14,7 +14,7 @@ include(cmake/FindYosys.cmake)
 include(cmake/FindABC.cmake)
 
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
-find_package(Boost 1.82 REQUIRED COMPONENTS filesystem system graph json)
+find_package(Boost 1.82 REQUIRED COMPONENTS filesystem system graph json program_options)
 
 # See abc/misc/util/abc_global.h: "long long" behaves differently on
 # difference archtectures, this flag is used to tell that the machine is
@@ -61,6 +61,7 @@ function(add_promise_binary binary_name)
         Eigen3::Eigen
         Boost::json
         Boost::filesystem
+        Boost::program_options
     )
     target_compile_options(${binary_name}
         PRIVATE 
