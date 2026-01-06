@@ -29,7 +29,7 @@ build_yosys() {
 build_ric3() {
   mkdir -p "$EXT_DIR/rIC3"
   # Install rIC3 from crates:
-  cargo install rIC3 --force --version 1.4.1 --root $EXT_DIR/rIC3
+  cargo install rIC3 --force --root $EXT_DIR/rIC3
   exit_on_failure "rIC3 build failed"
 }
 
