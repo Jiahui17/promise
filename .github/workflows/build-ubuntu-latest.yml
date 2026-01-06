@@ -27,6 +27,16 @@ jobs:
             graphviz xdot pkg-config python3 zlib1g-dev \
             help2man perl make curl python3-venv python3-pip autoconf
 
+      - name: Install Rust nightly
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+          components: rustfmt, clippy
+
+      - name: Rust version
+        run: rustc --version && cargo --version
+
       - name: Build promise
         run: |
           bash build.sh
