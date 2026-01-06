@@ -39,9 +39,9 @@ build_verilator() {
   exit_on_failure "verilator build failed"
 }
 
+build_ric3
 build_yosys
 build_abc
-build_ric3
 build_verilator
 
 mkdir -p "$PROMISE_CWD/build"
