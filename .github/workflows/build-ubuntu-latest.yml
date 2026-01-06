@@ -9,7 +9,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check-format:
+  build-and-test-promise:
     runs-on: ubuntu-latest
 
     steps:
